@@ -3,7 +3,7 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1992-1998
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, ViewPatterns #-}
 
 module BuildTyCl (
         buildDataCon,
@@ -198,9 +198,9 @@ buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
              matcher builder field_labels
   where
     ((_:_:univ_tvs1), req_theta1, tau) = tcSplitSigmaTy $ idType matcher_id
-    ([pat_ty1, cont_sigma, _], _)      = tcSplitFunTys tau
+    (map snd->[pat_ty1, cont_sigma, _], _)      = tcSplitFunTys tau
     (ex_tvs1, prov_theta1, cont_tau)   = tcSplitSigmaTy cont_sigma
-    (arg_tys1, _) = (tcSplitFunTys cont_tau)
+    (map snd->arg_tys1, _) = tcSplitFunTys cont_tau
     twiddle = char '~'
     subst = zipTvSubst (univ_tvs1 ++ ex_tvs1)
                        (mkTyVarTys (binderVars (univ_tvs ++ ex_tvs)))

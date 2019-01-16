@@ -120,7 +120,14 @@ module TysWiredIn (
         int8ElemRepDataConTy, int16ElemRepDataConTy, int32ElemRepDataConTy,
         int64ElemRepDataConTy, word8ElemRepDataConTy, word16ElemRepDataConTy,
         word32ElemRepDataConTy, word64ElemRepDataConTy, floatElemRepDataConTy,
-        doubleElemRepDataConTy
+        doubleElemRepDataConTy,
+
+        -- * Matchability
+        unmatchableDataConName, matchableDataConName, matchabilityTyConName,
+        matchabilityTy, matchabilityTyCon,
+        matchableDataConTy, unmatchableDataConTy,
+        unmatchableDataConTyCon, matchableDataConTyCon
+
 
     ) where
 
@@ -231,6 +238,7 @@ wiredInTyCons = [ -- Units are not treated like other tuples, because then
                 , vecElemTyCon
                 , constraintKindTyCon
                 , liftedTypeKindTyCon
+                , matchabilityTyCon
                 ]
 
 mkWiredInTyConName :: BuiltInSyntax -> Module -> FastString -> Unique -> TyCon -> Name
@@ -435,6 +443,11 @@ runtimeRepTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "RuntimeRep
 vecRepDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "VecRep") vecRepDataConKey vecRepDataCon
 tupleRepDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "TupleRep") tupleRepDataConKey tupleRepDataCon
 sumRepDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "SumRep") sumRepDataConKey sumRepDataCon
+
+matchabilityTyConName, matchableDataConName, unmatchableDataConName :: Name
+matchabilityTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Matchability") matchabilityTyConKey matchabilityTyCon
+matchableDataConName  = mk_special_dc_name (fsLit "Matchable") matchableDataConKey matchableDataCon
+unmatchableDataConName  = mk_special_dc_name (fsLit "Unmatchable") unmatchableDataConKey unmatchableDataCon
 
 -- See Note [Wiring in RuntimeRep]
 runtimeRepSimpleDataConNames :: [Name]
@@ -720,7 +733,10 @@ isBuiltInOcc_maybe occ =
       "~"    -> Just eqTyConName
 
       -- function tycon
-      "->"   -> Just funTyConName
+      "->>"  -> Just funTyConMatchableName
+
+      "~>"  -> Just funTyConUnmatchableName
+      "->"  -> Just funTyConMatchableName
 
       -- boxed tuple data/tycon
       "()"    -> Just $ tup_name Boxed 0
@@ -1264,7 +1280,32 @@ liftedRepDataConTyCon = promoteDataCon liftedRepDataCon
 
 -- The type ('LiftedRep)
 liftedRepTy :: Type
-liftedRepTy = liftedRepDataConTy
+liftedRepTy = mkTyConTy liftedRepDataConTyCon
+
+{- *********************************************************************
+*                                                                      *
+     Matchability polymorphism
+*                                                                      *
+********************************************************************* -}
+
+matchabilityTy :: Kind
+matchabilityTy = mkTyConTy matchabilityTyCon
+
+matchabilityTyCon :: TyCon
+matchabilityTyCon = pcTyCon matchabilityTyConName Nothing
+                    [] [matchableDataCon, unmatchableDataCon]
+
+matchableDataCon, unmatchableDataCon :: DataCon
+matchableDataCon   = pcDataCon matchableDataConName [] [] matchabilityTyCon
+unmatchableDataCon = pcDataCon unmatchableDataConName  [] [] matchabilityTyCon
+
+matchableDataConTyCon, unmatchableDataConTyCon :: TyCon
+matchableDataConTyCon = promoteDataCon matchableDataCon
+unmatchableDataConTyCon = promoteDataCon unmatchableDataCon
+
+matchableDataConTy, unmatchableDataConTy  :: Type
+matchableDataConTy    = mkTyConTy matchableDataConTyCon
+unmatchableDataConTy  = mkTyConTy unmatchableDataConTyCon
 
 {- *********************************************************************
 *                                                                      *

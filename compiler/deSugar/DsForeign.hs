@@ -187,7 +187,7 @@ fun_type_arg_stdcall_info dflags StdCallConv ty
   | Just (tc,[arg_ty]) <- splitTyConApp_maybe ty,
     tyConUnique tc == funPtrTyConKey
   = let
-       (bndrs, _) = tcSplitPiTys arg_ty
+       (unzip->(_,bndrs), _) = tcSplitPiTys arg_ty
        fe_arg_tys = mapMaybe binderRelevantType_maybe bndrs
     in Just $ sum (map (widthInBytes . typeWidth . typeCmmType dflags . getPrimTyOf) fe_arg_tys)
 fun_type_arg_stdcall_info _ _other_conv _
@@ -205,9 +205,9 @@ dsFCall :: Id -> Coercion -> ForeignCall -> Maybe Header
         -> DsM ([(Id, Expr TyVar)], SDoc, SDoc)
 dsFCall fn_id co fcall mDeclHeader = do
     let
-        ty                   = pFst $ coercionKind co
-        (tv_bndrs, rho)      = tcSplitForAllVarBndrs ty
-        (arg_tys, io_res_ty) = tcSplitFunTys rho
+        ty                              = pFst $ coercionKind co
+        (tv_bndrs, rho)                 = tcSplitForAllVarBndrs ty
+        (unzip->(_,arg_tys), io_res_ty) = tcSplitFunTys rho
 
     args <- newSysLocalsDs arg_tys  -- no FFI levity-polymorphism
     (val_args, arg_wrappers) <- mapAndUnzipM unboxArg (map Var args)
@@ -271,7 +271,7 @@ dsFCall fn_id co fcall mDeclHeader = do
                   return (fcall, empty)
     let
         -- Build the worker
-        worker_ty     = mkForAllTys tv_bndrs (mkVisFunTys (map idType work_arg_ids) ccall_result_ty)
+        worker_ty     = mkForAllTys tv_bndrs (mkVisFunTysU (map idType work_arg_ids) ccall_result_ty)
         tvs           = map binderVar tv_bndrs
         the_ccall_app = mkFCall dflags ccall_uniq fcall' val_args ccall_result_ty
         work_rhs      = mkLams tvs (mkLams work_arg_ids the_ccall_app)
@@ -306,9 +306,9 @@ dsPrimCall :: Id -> Coercion -> ForeignCall
            -> DsM ([(Id, Expr TyVar)], SDoc, SDoc)
 dsPrimCall fn_id co fcall = do
     let
-        ty                   = pFst $ coercionKind co
-        (tvs, fun_ty)        = tcSplitForAllTys ty
-        (arg_tys, io_res_ty) = tcSplitFunTys fun_ty
+        ty                               = pFst $ coercionKind co
+        (tvs, fun_ty)                    = tcSplitForAllTys ty
+        (unzip->(_, arg_tys), io_res_ty) = tcSplitFunTys fun_ty
 
     args <- newSysLocalsDs arg_tys  -- no FFI levity-polymorphism
 
@@ -356,9 +356,9 @@ dsFExport :: Id                 -- Either the exported Id,
 
 dsFExport fn_id co ext_name cconv isDyn = do
     let
-       ty                     = pSnd $ coercionKind co
-       (bndrs, orig_res_ty)   = tcSplitPiTys ty
-       fe_arg_tys'            = mapMaybe binderRelevantType_maybe bndrs
+       ty                               = pSnd $ coercionKind co
+       (unzip->(_, bndrs), orig_res_ty) = tcSplitPiTys ty
+       fe_arg_tys'                      = mapMaybe binderRelevantType_maybe bndrs
        -- We must use tcSplits here, because we want to see
        -- the (IO t) in the corner of the type!
        fe_arg_tys | isDyn     = tail fe_arg_tys'
@@ -431,7 +431,7 @@ dsFExportDynamic id co0 cconv = do
     stable_ptr_tycon <- dsLookupTyCon stablePtrTyConName
     let
         stable_ptr_ty = mkTyConApp stable_ptr_tycon [arg_ty]
-        export_ty     = mkVisFunTy stable_ptr_ty arg_ty
+        export_ty     = mkVisFunTyU stable_ptr_ty arg_ty
     bindIOId <- dsLookupGlobalId bindIOName
     stbl_value <- newSysLocalDs stable_ptr_ty
     (h_code, c_code, typestring, args_size) <- dsFExport id (mkRepReflCo export_ty) fe_nm cconv True
@@ -478,10 +478,10 @@ dsFExportDynamic id co0 cconv = do
     return ([fed], h_code, c_code)
 
  where
-  ty                       = pFst (coercionKind co0)
-  (tvs,sans_foralls)       = tcSplitForAllTys ty
-  ([arg_ty], fn_res_ty)    = tcSplitFunTys sans_foralls
-  Just (io_tc, res_ty)     = tcSplitIOType_maybe fn_res_ty
+  ty                         = pFst (coercionKind co0)
+  (tvs,sans_foralls)         = tcSplitForAllTys ty
+  ([(_, arg_ty)], fn_res_ty) = tcSplitFunTys sans_foralls
+  Just (io_tc, res_ty)       = tcSplitIOType_maybe fn_res_ty
         -- Must have an IO type; hence Just
 
 

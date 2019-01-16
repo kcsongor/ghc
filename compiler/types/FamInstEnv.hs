@@ -1399,11 +1399,12 @@ normalise_type ty
 
     go (AppTy ty1 ty2) = go_app_tys ty1 [ty2]
 
-    go ty@(FunTy { ft_arg = ty1, ft_res = ty2 })
-      = do { (co1, nty1) <- go ty1
+    go ty@(FunTy { ft_ma = mty, ft_arg = ty1, ft_res = ty2 })
+      = do { (mco, nmty) <- go mty
+           ; (co1, nty1) <- go ty1
            ; (co2, nty2) <- go ty2
            ; r <- getRole
-           ; return (mkFunCo r co1 co2, ty { ft_arg = nty1, ft_res = nty2 }) }
+           ; return (mkFunCo r mco co1 co2, ty { ft_ma = nmty, ft_arg = nty1, ft_res = nty2 }) }
     go (ForAllTy (Bndr tcvar vis) ty)
       = do { (lc', tv', h, ki') <- normalise_var_bndr tcvar
            ; (co, nty)          <- withLC lc' $ normalise_type ty
@@ -1462,7 +1463,11 @@ normalise_args :: Kind    -- of the function
 -- cf. TcFlatten.flatten_args_slow
 normalise_args fun_ki roles args
   = do { normed_args <- zipWithM normalise1 roles args
-       ; let (xis, cos, res_co) = simplifyArgsWorker ki_binders inner_ki fvs roles normed_args
+       ; let (xis, cos, res_co) = simplifyArgsWorker (map snd ki_binders)
+                                                     inner_ki
+                                                     fvs
+                                                     (funMatchabilities fun_ki)
+                                                     roles normed_args
        ; return (map mkSymCo cos, xis, mkSymCo res_co) }
   where
     (ki_binders, inner_ki) = splitPiTys fun_ki
@@ -1622,10 +1627,11 @@ coreFlattenTy = go
       = let (env', tys') = coreFlattenTys env tys in
         (env', mkTyConApp tc tys')
 
-    go env ty@(FunTy { ft_arg = ty1, ft_res = ty2 })
-      = let (env1, ty1') = go env  ty1
-            (env2, ty2') = go env1 ty2 in
-        (env2, ty { ft_arg = ty1', ft_res = ty2' })
+    go env ty@(FunTy { ft_ma = mty, ft_arg = ty1, ft_res = ty2 })
+      = let (env1, mty') = go env  mty
+            (env2, ty1') = go env1  ty1
+            (env3, ty2') = go env2 ty2 in
+        (env3, ty { ft_ma = mty', ft_arg = ty1', ft_res = ty2' })
 
     go env (ForAllTy (Bndr tv vis) ty)
       = let (env1, tv') = coreFlattenVarBndr env tv
@@ -1706,7 +1712,7 @@ allTyCoVarsInTy = go
     go (TyVarTy tv)      = unitVarSet tv
     go (TyConApp _ tys)  = allTyCoVarsInTys tys
     go (AppTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
-    go (FunTy _ ty1 ty2) = (go ty1) `unionVarSet` (go ty2)
+    go (FunTy _ mty ty1 ty2) = (go mty) `unionVarSet` (go ty1) `unionVarSet` (go ty2)
     go (ForAllTy (Bndr tv _) ty) = unitVarSet tv     `unionVarSet`
                                    go (tyVarKind tv) `unionVarSet`
                                    go ty
@@ -1724,7 +1730,7 @@ allTyCoVarsInTy = go
     go_co (AppCo co arg)        = go_co co `unionVarSet` go_co arg
     go_co (ForAllCo tv h co)
       = unionVarSets [unitVarSet tv, go_co co, go_co h]
-    go_co (FunCo _ c1 c2)       = go_co c1 `unionVarSet` go_co c2
+    go_co (FunCo _ mco c1 c2)   = go_co mco `unionVarSet` go_co c1 `unionVarSet` go_co c2
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (HoleCo h)            = unitVarSet (coHoleCoVar h)
     go_co (AxiomInstCo _ _ cos) = go_cos cos

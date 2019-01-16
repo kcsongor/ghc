@@ -921,7 +921,7 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1@(LitTy l1) _ (LitTy l2) _
 -- Try to decompose type constructor applications
 -- Including FunTy (s -> t)
 can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1 _ ty2 _
-    --- See Note [FunTy and decomposing type constructor applications].
+    --- See Note [FunTy and decomposing tycon applications].
   | Just (tc1, tys1) <- repSplitTyConApp_maybe ty1
   , Just (tc2, tys2) <- repSplitTyConApp_maybe ty2
   , not (isTypeFamilyTyCon tc1)
@@ -935,12 +935,20 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel
 -- See Note [Canonicalising type applications] about why we require flat types
 can_eq_nc' True _rdr_env _envs ev eq_rel (AppTy t1 s1) _ ty2 _
   | NomEq <- eq_rel
-  , Just (t2, s2) <- tcSplitAppTy_maybe ty2
+  , isMatchableFunTy t1
+  , Just (t2, s2) <- tcSplitAppTy_maybe False ty2
   = can_eq_app ev t1 s1 t2 s2
 can_eq_nc' True _rdr_env _envs ev eq_rel ty1 _ (AppTy t2 s2) _
   | NomEq <- eq_rel
-  , Just (t1, s1) <- tcSplitAppTy_maybe ty1
+  , isMatchableFunTy t2
+  , Just (t1, s1) <- tcSplitAppTy_maybe False ty1
   = can_eq_app ev t1 s1 t2 s2
+
+-- See Note [Unsolved equalities]
+can_eq_nc' True _rdr_env _envs ev eq_rel AppTy{} _ _ _
+  = continueWith (mkIrredCt ev)
+can_eq_nc' True _rdr_env _envs ev eq_rel ty1 _ AppTy{} _
+  = continueWith (mkIrredCt ev)
 
 -- No similarity in type structure detected. Flatten and try again.
 can_eq_nc' False rdr_env envs ev eq_rel _ ps_ty1 _ ps_ty2
@@ -965,6 +973,10 @@ If we have an unsolved equality like
 that is not necessarily insoluble!  Maybe 'a' will turn out to be a newtype.
 So we want to make it a potentially-soluble Irred not an insoluble one.
 Missing this point is what caused #15431
+
+Similarly, if we have an unsolved like
+  ((a :: * ~> *) b ~N# Int)
+is not insoluble!
 -}
 
 ---------------------------------
@@ -1069,17 +1081,19 @@ zonk_eq_types = go
 
     -- We handle FunTys explicitly here despite the fact that they could also be
     -- treated as an application. Why? Well, for one it's cheaper to just look
-    -- at two types (the argument and result types) than four (the argument,
-    -- result, and their RuntimeReps). Also, we haven't completely zonked yet,
+    -- at two types (the argument and result types) than five (the argument,
+    -- result, and their RuntimeReps, and matchability). Also, we haven't completely zonked yet,
     -- so we may run into an unzonked type variable while trying to compute the
     -- RuntimeReps of the argument and result types. This can be observed in
     -- testcase tc269.
     go ty1 ty2
-      | Just (arg1, res1) <- split1
-      , Just (arg2, res2) <- split2
+      | Just (m1, arg1, res1) <- split1
+      , Just (m2, arg2, res2) <- split2
       = do { res_a <- go arg1 arg2
            ; res_b <- go res1 res2
-           ; return $ combine_rev mkVisFunTy res_b res_a
+           ; m     <- go m1   m2
+           ; let f [m', a', b'] = mkVisFunTy m' a' b'
+           ; return $ bimap (fmap f) f $ combine_results [m, res_a, res_b]
            }
       | isJust split1 || isJust split2
       = bale_out ty1 ty2
@@ -1101,8 +1115,8 @@ zonk_eq_types = go
         else bale_out ty1 ty2
 
     go ty1 ty2
-      | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe ty1
-      , Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe ty2
+      | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe True ty1
+      , Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe True ty2
       = do { res_a <- go ty1a ty2a
            ; res_b <- go ty1b ty2b
            ; return $ combine_rev mkAppTy res_b res_a }
@@ -1165,8 +1179,8 @@ zonk_eq_types = go
                Left tys  -> Left (mkTyConApp tc <$> tys)
                Right tys -> Right (mkTyConApp tc tys) }
 
-    combine_results :: [Either (Pair TcType) TcType]
-                    -> Either (Pair [TcType]) [TcType]
+    combine_results :: [Either (Pair a) a]
+                    -> Either (Pair [a]) [a]
     combine_results = bimap (fmap reverse) reverse .
                       foldl' (combine_rev (:)) (Right [])
 
@@ -1668,11 +1682,8 @@ unifyWanted etc to short-cut that work.
 Note [Canonicalising type applications]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Given (s1 t1) ~ ty2, how should we proceed?
-The simple things is to see if ty2 is of form (s2 t2), and
-decompose.  By this time s1 and s2 can't be saturated type
-function applications, because those have been dealt with
-by an earlier equation in can_eq_nc, so it is always sound to
-decompose.
+The simple things is to see if ty2 is of form (s2 t2), then
+check that both s1 and s2 have matchable kinds, then decompose.
 
 However, over-eager decomposition gives bad error messages
 for things like
@@ -2385,10 +2396,11 @@ unifyWanted loc role orig_ty1 orig_ty2
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
-    go (FunTy _ s1 t1) (FunTy _ s2 t2)
+    go (FunTy _ m1 s1 t1) (FunTy _ m2 s2 t2)
       = do { co_s <- unifyWanted loc role s1 s2
            ; co_t <- unifyWanted loc role t1 t2
-           ; return (mkFunCo role co_s co_t) }
+           ; co_m <- unifyWanted loc role m1 m2
+           ; return (mkFunCo role co_m co_s co_t) }
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, tys1 `equalLength` tys2
       , isInjectiveTyCon tc1 role -- don't look under newtypes at Rep equality
@@ -2436,8 +2448,9 @@ unify_derived loc role    orig_ty1 orig_ty2
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
-    go (FunTy _ s1 t1) (FunTy _ s2 t2)
-      = do { unify_derived loc role s1 s2
+    go (FunTy _ m1 s1 t1) (FunTy _ m2 s2 t2)
+      = do { unify_derived loc role m1 m2
+           ; unify_derived loc role s1 s2
            ; unify_derived loc role t1 t2 }
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, tys1 `equalLength` tys2

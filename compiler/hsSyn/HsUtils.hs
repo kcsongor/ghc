@@ -494,12 +494,13 @@ nlList exprs          = noLoc (ExplicitList noExt Nothing exprs)
 
 nlHsAppTy :: LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
 nlHsTyVar :: IdP (GhcPass p)                            -> LHsType (GhcPass p)
-nlHsFunTy :: LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
+nlHsFunTy :: LHsMatchability (GhcPass p)
+          -> LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
 nlHsParTy :: LHsType (GhcPass p)                        -> LHsType (GhcPass p)
 
 nlHsAppTy f t = noLoc (HsAppTy noExt f (parenthesizeHsType appPrec t))
 nlHsTyVar x   = noLoc (HsTyVar noExt NotPromoted (noLoc x))
-nlHsFunTy a b = noLoc (HsFunTy noExt (parenthesizeHsType funPrec a) b)
+nlHsFunTy m a b = noLoc (HsFunTy noExt m (parenthesizeHsType funPrec a) b)
 nlHsParTy t   = noLoc (HsParTy noExt t)
 
 nlHsTyConApp :: IdP (GhcPass p) -> [LHsType (GhcPass p)] -> LHsType (GhcPass p)
@@ -650,9 +651,9 @@ typeToLHsType ty
   = go ty
   where
     go :: Type -> LHsType GhcPs
-    go ty@(FunTy { ft_af = af, ft_arg = arg, ft_res = res })
+    go ty@(FunTy { ft_af = af, ft_ma = m, ft_arg = arg, ft_res = res })
       = case af of
-          VisArg   -> nlHsFunTy (go arg) (go res)
+          VisArg   -> nlHsFunTy (go_matchability m) (go arg) (go res)
           InvisArg | (theta, tau) <- tcSplitPhiTy ty
                    -> noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
                                       , hst_xqual = noExt
@@ -682,9 +683,18 @@ typeToLHsType ty
       where
         head :: Type
         args :: [Type]
-        (head, args) = splitAppTys ty
+        (head, args) = splitAppTys True ty
     go (CastTy ty _)        = go ty
     go (CoercionTy co)      = pprPanic "toLHsSigWcType" (ppr co)
+
+    go_matchability :: Matchability -> LHsMatchability GhcPs
+    go_matchability ty
+      | isMatchableTy ty
+      = HsMatchable
+      | isUnmatchableTy ty
+      = HsUnmatchable
+      | otherwise
+      = HsExplicitMatchability (go ty)
 
          -- Source-language types have _invisible_ kind arguments,
          -- so we must remove them here (#8563)

@@ -695,8 +695,9 @@ check_type ve@(ValidityEnv{ ve_tidy_env = env, ve_ctxt = ctxt
     (theta, tau)  = tcSplitPhiTy phi
     (env', tvbs') = tidyTyCoVarBinders env tvbs
 
-check_type (ve@ValidityEnv{ve_rank = rank}) (FunTy _ arg_ty res_ty)
-  = do  { check_type (ve{ve_rank = arg_rank}) arg_ty
+check_type (ve@ValidityEnv{ve_rank = rank}) (FunTy _ m arg_ty res_ty)
+  = do  { check_type ve m -- TODO (csongor): check kind
+        ; check_type (ve{ve_rank = arg_rank}) arg_ty
         ; check_type (ve{ve_rank = res_rank}) res_ty }
   where
     (arg_rank, res_rank) = funArgResRank rank
@@ -732,8 +733,12 @@ check_syn_tc_app (ve@ValidityEnv{ ve_ctxt = ctxt, ve_expand = expand })
                            -- See Note [Unsaturated type synonyms in GHCi]
   = check_args_only expand
 
-  | otherwise
-  = failWithTc (tyConArityErr tc tys)
+  | otherwise -- Unsaturated
+  = do { -- See Note [Unsaturated type families]
+       ; unsaturated <- xoptM LangExt.UnsaturatedTypeFamilies
+       ; if unsaturated then
+              check_args_only expand
+         else failWithTc (tyConArityErr tc tys) }
   where
     tc_arity  = tyConArity tc
 
@@ -752,6 +757,16 @@ check_syn_tc_app (ve@ValidityEnv{ ve_ctxt = ctxt, ve_expand = expand })
                      in addErrCtxt err_ctxt $
                         check_type (ve{ve_expand = expand}) ty'
          Nothing  -> pprPanic "check_syn_tc_app" (ppr ty)
+
+
+{-
+Note [Unsaturated type families]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When -XUnsaturatedTypeFamilies is enabled, we allow type family applications
+where the number of arguments is less than the arity of the type family.
+
+-}
 
 {-
 Note [Unsaturated type synonyms in GHCi]
@@ -1628,8 +1643,10 @@ tcInstHeadTyAppAllTyVars :: Type -> Bool
 -- Used in Haskell-98 mode, for the argument types of an instance head
 -- These must be a constructor applied to type variable arguments
 -- or a type-level literal.
--- But we allow kind instantiations.
+-- But we allow kind instantiations, and matchability instantiations.
 tcInstHeadTyAppAllTyVars ty
+  | Just (_, f, a) <- tcSplitFunTy_maybe (dropCasts ty)
+  = ok [f, a]
   | Just (tc, tys) <- tcSplitTyConApp_maybe (dropCasts ty)
   = ok (filterOutInvisibleTypes tc tys)  -- avoid kinds
   | LitTy _ <- ty = True  -- accept type literals (#13833)
@@ -1649,7 +1666,7 @@ dropCasts :: Type -> Type
 -- To consider: drop only HoleCo casts
 dropCasts (CastTy ty _)       = dropCasts ty
 dropCasts (AppTy t1 t2)       = mkAppTy (dropCasts t1) (dropCasts t2)
-dropCasts ty@(FunTy _ t1 t2)  = ty { ft_arg = dropCasts t1, ft_res = dropCasts t2 }
+dropCasts ty@(FunTy _ m t1 t2)= ty { ft_ma = dropCasts m, ft_arg = dropCasts t1, ft_res = dropCasts t2 }
 dropCasts (TyConApp tc tys)   = mkTyConApp tc (map dropCasts tys)
 dropCasts (ForAllTy b ty)     = ForAllTy (dropCastsB b) (dropCasts ty)
 dropCasts ty                  = ty  -- LitTy, TyVarTy, CoercionTy
@@ -2089,7 +2106,8 @@ checkValidTyFamEqn fam_tc qvs typats rhs
 
          -- We have a decidable instance unless otherwise permitted
        ; undecidable_ok <- xoptM LangExt.UndecidableInstances
-       ; traceTc "checkVTFE" (ppr fam_tc $$ ppr rhs $$ ppr (tcTyFamInsts rhs))
+       --; traceTc "checkVTFE" (ppr fam_tc $$ ppr rhs $$ ppr (tcTyFamInsts rhs))
+       ; traceTc "checkVTFE" (ppr fam_tc $$ ppr rhs) -- TODO (csongor): the above loops. Did I forget to zonk something?
        ; unless undecidable_ok $
          mapM_ addErrTc (checkFamInstRhs fam_tc typats (tcTyFamInsts rhs)) }
 
@@ -2768,7 +2786,7 @@ fvType (TyVarTy tv)          = [tv]
 fvType (TyConApp _ tys)      = fvTypes tys
 fvType (LitTy {})            = []
 fvType (AppTy fun arg)       = fvType fun ++ fvType arg
-fvType (FunTy _ arg res)     = fvType arg ++ fvType res
+fvType (FunTy _ m arg res)   = fvType m ++ fvType arg ++ fvType res
 fvType (ForAllTy (Bndr tv _) ty)
   = fvType (tyVarKind tv) ++
     filter (/= tv) (fvType ty)
@@ -2785,7 +2803,7 @@ sizeType (TyVarTy {})      = 1
 sizeType (TyConApp tc tys) = 1 + sizeTyConAppArgs tc tys
 sizeType (LitTy {})        = 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
-sizeType (FunTy _ arg res) = sizeType arg + sizeType res + 1
+sizeType (FunTy _ m arg res) = sizeType m + sizeType arg + sizeType res + 1
 sizeType (ForAllTy _ ty)   = sizeType ty
 sizeType (CastTy ty _)     = sizeType ty
 sizeType (CoercionTy _)    = 0

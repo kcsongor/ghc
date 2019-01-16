@@ -156,17 +156,18 @@ gcast2 x = fmap (\Refl -> x) (eqT :: Maybe (t :~: t'))
 funResultTy :: TypeRep -> TypeRep -> Maybe TypeRep
 funResultTy (I.SomeTypeRep f) (I.SomeTypeRep x)
   | Just HRefl <- (I.typeRep :: I.TypeRep Type) `I.eqTypeRep` I.typeRepKind f
-  , I.Fun arg res <- f
+  , I.Fun _ arg res <- f
   , Just HRefl <- arg `I.eqTypeRep` x
   = Just (I.SomeTypeRep res)
   | otherwise = Nothing
 
 -- | Build a function type.
-mkFunTy :: TypeRep -> TypeRep -> TypeRep
-mkFunTy (I.SomeTypeRep arg) (I.SomeTypeRep res)
+mkFunTy :: TypeRep -> TypeRep -> TypeRep -> TypeRep
+mkFunTy (I.SomeTypeRep m) (I.SomeTypeRep arg) (I.SomeTypeRep res)
   | Just HRefl <- I.typeRepKind arg `I.eqTypeRep` liftedTy
   , Just HRefl <- I.typeRepKind res `I.eqTypeRep` liftedTy
-  = I.SomeTypeRep (I.Fun arg res)
+  , Just HRefl <- I.typeRepKind m `I.eqTypeRep` (I.typeRep :: I.TypeRep Matchability)
+  = I.SomeTypeRep (I.Fun m arg res)
   | otherwise
   = error $ "mkFunTy: Attempted to construct function type from non-lifted "++
             "type: arg="++show arg++", res="++show res

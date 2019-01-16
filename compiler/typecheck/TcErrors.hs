@@ -1525,8 +1525,8 @@ mkCoercibleExplanation rdr_env fam_envs ty1 ty2
   , (rep_tc, _, _) <- tcLookupDataFamInst fam_envs tc tys
   , Just msg <- coercible_msg_for_tycon rep_tc
   = msg
-  | Just (s1, _) <- tcSplitAppTy_maybe ty1
-  , Just (s2, _) <- tcSplitAppTy_maybe ty2
+  | Just (s1, _) <- tcSplitAppTy_maybe False ty1
+  , Just (s2, _) <- tcSplitAppTy_maybe False ty2
   , s1 `eqType` s2
   , has_unknown_roles s1
   = hang (text "NB: We cannot know what roles the parameters to" <+>
@@ -1552,7 +1552,7 @@ mkCoercibleExplanation rdr_env fam_envs ty1 ty2
     has_unknown_roles ty
       | Just (tc, tys) <- tcSplitTyConApp_maybe ty
       = tys `lengthAtLeast` tyConArity tc  -- oversaturated tycon
-      | Just (s, _) <- tcSplitAppTy_maybe ty
+      | Just (s, _) <- tcSplitAppTy_maybe False ty
       = has_unknown_roles s
       | isTyVarTy ty
       = True
@@ -2091,7 +2091,8 @@ mkExpectedActualMsg ty1 ty2 ct@(TypeEqOrigin { uo_actual = act
       Nothing -> empty
       Just m  -> m
 
-    count_args ty = count isVisibleBinder $ fst $ splitPiTys ty
+    count_args ty = case splitPiTys ty of
+        (unzip -> (_, bndrs), _) -> count isVisibleBinder bndrs
 
     expandedTys =
       ppUnless (expTy1 `pickyEqType` exp && expTy2 `pickyEqType` act) $ vcat
@@ -2199,11 +2200,12 @@ expandSynonymsToMatch ty1 ty2 = (ty1_ret, ty2_ret)
           (t1_2', t2_2') = go t1_2 t2_2
        in (mkAppTy t1_1' t1_2', mkAppTy t2_1' t2_2')
 
-    go ty1@(FunTy _ t1_1 t1_2) ty2@(FunTy _ t2_1 t2_2) =
+    go ty1@(FunTy _ m_1 t1_1 t1_2) ty2@(FunTy _ m_2 t2_1 t2_2) =
       let (t1_1', t2_1') = go t1_1 t2_1
           (t1_2', t2_2') = go t1_2 t2_2
-       in ( ty1 { ft_arg = t1_1', ft_res = t1_2' }
-          , ty2 { ft_arg = t2_1', ft_res = t2_2' })
+          (m_1',  m_2')  = go m_1 m_2
+       in ( ty1 { ft_ma = m_1', ft_arg = t1_1', ft_res = t1_2' }
+          , ty2 { ft_ma = m_2', ft_arg = t2_1', ft_res = t2_2' })
 
     go (ForAllTy b1 t1) (ForAllTy b2 t2) =
       -- NOTE: We may have a bug here, but we just can't reproduce it easily.

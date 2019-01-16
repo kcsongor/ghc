@@ -32,6 +32,7 @@ module GHC.Types (
         Nat, Symbol,
         Any,
         type (~~), Coercible,
+        Matchability(..),
         TYPE, RuntimeRep(..), Type, Constraint,
           -- The historical type * should ideally be written as
           -- `type *`, without the parentheses. But that's a true
@@ -372,6 +373,14 @@ data SPEC = SPEC | SPEC2
 
 {- *********************************************************************
 *                                                                      *
+                  Matchability polymorphism
+*                                                                      *
+********************************************************************* -}
+
+data Matchability = Matchable | Unmatchable
+
+{- *********************************************************************
+*                                                                      *
                     Levity polymorphism
 *                                                                      *
 ********************************************************************* -}
@@ -478,7 +487,7 @@ type KindBndr = Int
 data KindRep = KindRepTyConApp TyCon [KindRep]
              | KindRepVar !KindBndr
              | KindRepApp KindRep KindRep
-             | KindRepFun KindRep KindRep
+             | KindRepFun  KindRep KindRep KindRep
              | KindRepTYPE !RuntimeRep
              | KindRepTypeLitS TypeLitSort Addr#
              | KindRepTypeLitD TypeLitSort [Char]

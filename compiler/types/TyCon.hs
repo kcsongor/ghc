@@ -105,10 +105,10 @@ module TyCon(
         -- ** Manipulating TyCons
         expandSynTyCon_maybe,
         newTyConCo, newTyConCo_maybe,
-        pprPromotionQuote, mkTyConKind,
+        pprPromotionQuote, mkTyConKind, mkTyConKindU, mkTyConKindM,
 
         -- ** Predicated on TyConFlavours
-        tcFlavourIsOpen,
+        tcFlavourIsOpen, tcFlavourMustBeSaturated,
 
         -- * Runtime type representation
         TyConRepName, tyConRepName_maybe,
@@ -132,9 +132,10 @@ module TyCon(
 
 import GhcPrelude
 
-import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, pprType, mkForAllTy, mkFunTy )
-import {-# SOURCE #-} TysWiredIn ( runtimeRepTyCon, constraintKind
-                                 , vecCountTyCon, vecElemTyCon, liftedTypeKind )
+import {-# SOURCE #-} TyCoRep    ( Kind, Type, Matchability, PredType, pprType, mkForAllTy, mkFunTy )
+import {-# SOURCE #-} TysWiredIn ( runtimeRepTyCon, constraintKind, matchabilityTyCon
+                                 , vecCountTyCon, vecElemTyCon, liftedTypeKind
+                                 , matchableDataConTy, unmatchableDataConTy )
 import {-# SOURCE #-} DataCon    ( DataCon, dataConExTyCoVars, dataConFieldLabels
                                  , dataConTyCon, dataConFullSig
                                  , isUnboxedSumCon )
@@ -460,12 +461,19 @@ isInvisibleTyConBinder :: VarBndr tv TyConBndrVis -> Bool
 -- Works for IfaceTyConBinder too
 isInvisibleTyConBinder tcb = not (isVisibleTyConBinder tcb)
 
-mkTyConKind :: [TyConBinder] -> Kind -> Kind
-mkTyConKind bndrs res_kind = foldr mk res_kind bndrs
+mkTyConKind :: Matchability -> [TyConBinder] -> Kind -> Kind
+mkTyConKind m bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: TyConBinder -> Kind -> Kind
-    mk (Bndr tv (AnonTCB af))   k = mkFunTy af (varType tv) k
+    mk (Bndr tv (AnonTCB af))   k = mkFunTy af m (varType tv) k
     mk (Bndr tv (NamedTCB vis)) k = mkForAllTy tv vis k
+
+mkTyConKindU :: [TyConBinder] -> Kind -> Kind
+mkTyConKindU  = mkTyConKind unmatchableDataConTy
+
+mkTyConKindM :: [TyConBinder] -> Kind -> Kind
+mkTyConKindM  = mkTyConKind matchableDataConTy
+
 
 tyConTyVarBinders :: [TyConBinder]   -- From the TyCon
                   -> [TyVarBinder]   -- Suitable for the foralls of a term function
@@ -568,7 +576,7 @@ All TyCons have this group of fields
                               --   NB: Currently (Aug 2018), TyCons that own this
                               --   field really only contain TyVars. So it is
                               --   [TyVar] instead of [TyCoVar].
-  tyConKind      :: Kind      -- Cached = mkTyConKind tyConBinders tyConResKind
+  tyConKind      :: Kind      -- Cached = mkTyConKind matchability tyConBinders tyConResKind
   tyConArity     :: Arity     -- Cached = length tyConBinders
 
 They fit together like so:
@@ -1522,7 +1530,7 @@ mkFunTyCon name binders rep_nm
         tyConName    = name,
         tyConBinders = binders,
         tyConResKind = liftedTypeKind,
-        tyConKind    = mkTyConKind binders liftedTypeKind,
+        tyConKind    = mkTyConKindM binders liftedTypeKind,
         tyConArity   = length binders,
         tcRepName    = rep_nm
     }
@@ -1549,7 +1557,7 @@ mkAlgTyCon name binders res_kind roles cType stupid rhs parent gadt_syn
         tyConUnique      = nameUnique name,
         tyConBinders     = binders,
         tyConResKind     = res_kind,
-        tyConKind        = mkTyConKind binders res_kind,
+        tyConKind        = mkTyConKindM binders res_kind,
         tyConArity       = length binders,
         tyConTyVars      = binderVars binders,
         tcRoles          = roles,
@@ -1585,7 +1593,7 @@ mkTupleTyCon name binders res_kind arity con sort parent
         tyConBinders     = binders,
         tyConTyVars      = binderVars binders,
         tyConResKind     = res_kind,
-        tyConKind        = mkTyConKind binders res_kind,
+        tyConKind        = mkTyConKindM binders res_kind,
         tyConArity       = arity,
         tcRoles          = replicate arity Representational,
         tyConCType       = Nothing,
@@ -1612,7 +1620,7 @@ mkSumTyCon name binders res_kind arity tyvars cons parent
         tyConBinders     = binders,
         tyConTyVars      = tyvars,
         tyConResKind     = res_kind,
-        tyConKind        = mkTyConKind binders res_kind,
+        tyConKind        = mkTyConKindM binders res_kind,
         tyConArity       = arity,
         tcRoles          = replicate arity Representational,
         tyConCType       = Nothing,
@@ -1644,11 +1652,15 @@ mkTcTyCon name binders res_kind scoped_tvs poly flav
             , tyConTyVars  = binderVars binders
             , tyConBinders = binders
             , tyConResKind = res_kind
-            , tyConKind    = mkTyConKind binders res_kind
+            , tyConKind    = mkTyConKind matchability binders res_kind
             , tyConArity   = length binders
             , tcTyConScopedTyVars = scoped_tvs
             , tcTyConIsPoly       = poly
             , tcTyConFlavour      = flav }
+  where
+    matchability = if tcFlavourMustBeSaturated flav
+                    then unmatchableDataConTy
+                    else matchableDataConTy
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@.
 mkPrimTyCon :: Name -> [TyConBinder]
@@ -1686,7 +1698,7 @@ mkPrimTyCon' name binders res_kind roles is_unlifted rep_nm
         tyConUnique  = nameUnique name,
         tyConBinders = binders,
         tyConResKind = res_kind,
-        tyConKind    = mkTyConKind binders res_kind,
+        tyConKind    = mkTyConKindM binders res_kind,
         tyConArity   = length roles,
         tcRoles      = roles,
         isUnlifted   = is_unlifted,
@@ -1702,7 +1714,7 @@ mkSynonymTyCon name binders res_kind roles rhs is_tau is_fam_free
         tyConUnique  = nameUnique name,
         tyConBinders = binders,
         tyConResKind = res_kind,
-        tyConKind    = mkTyConKind binders res_kind,
+        tyConKind    = mkTyConKindU binders res_kind,
         tyConArity   = length binders,
         tyConTyVars  = binderVars binders,
         tcRoles      = roles,
@@ -1721,7 +1733,7 @@ mkFamilyTyCon name binders res_kind resVar flav parent inj
       , tyConName    = name
       , tyConBinders = binders
       , tyConResKind = res_kind
-      , tyConKind    = mkTyConKind binders res_kind
+      , tyConKind    = mkTyConKind (famTyConFlavMatchability flav) binders res_kind
       , tyConArity   = length binders
       , tyConTyVars  = binderVars binders
       , famTcResVar  = resVar
@@ -1746,7 +1758,7 @@ mkPromotedDataCon con name rep_name binders res_kind roles rep_info
         tcRoles       = roles,
         tyConBinders  = binders,
         tyConResKind  = res_kind,
-        tyConKind     = mkTyConKind binders res_kind,
+        tyConKind     = mkTyConKindM binders res_kind,
         dataCon       = con,
         tcRepName     = rep_name,
         promDcRepInfo = rep_info
@@ -2125,7 +2137,7 @@ kindTyConKeys :: UniqSet Unique
 kindTyConKeys = unionManyUniqSets
   ( mkUniqSet [ liftedTypeKindTyConKey, constraintKindTyConKey, tYPETyConKey ]
   : map (mkUniqSet . tycon_with_datacons) [ runtimeRepTyCon
-                                          , vecCountTyCon, vecElemTyCon ] )
+                                          , vecCountTyCon, vecElemTyCon, matchabilityTyCon ] )
   where
     tycon_with_datacons tc = getUnique tc : map getUnique (tyConDataCons tc)
 
@@ -2317,7 +2329,7 @@ tyConRoles :: TyCon -> [Role]
 -- See also Note [TyCon Role signatures]
 tyConRoles tc
   = case tc of
-    { FunTyCon {}                         -> [Nominal, Nominal, Representational, Representational]
+    { FunTyCon {}                         -> [Nominal, Nominal, Nominal, Representational, Representational]
     ; AlgTyCon { tcRoles = roles }        -> roles
     ; SynonymTyCon { tcRoles = roles }    -> roles
     ; FamilyTyCon {}                      -> const_role Nominal
@@ -2562,6 +2574,13 @@ tcFlavourMustBeSaturated PromotedDataConFlavour  = False
 tcFlavourMustBeSaturated TypeSynonymFlavour      = True
 tcFlavourMustBeSaturated OpenTypeFamilyFlavour{} = True
 tcFlavourMustBeSaturated ClosedTypeFamilyFlavour = True
+
+famTyConFlavMatchability :: FamTyConFlav -> Matchability
+famTyConFlavMatchability DataFamilyTyCon{}              = matchableDataConTy
+famTyConFlavMatchability OpenSynFamilyTyCon{}           = unmatchableDataConTy
+famTyConFlavMatchability ClosedSynFamilyTyCon{}         = unmatchableDataConTy
+famTyConFlavMatchability AbstractClosedSynFamilyTyCon{} = unmatchableDataConTy
+famTyConFlavMatchability BuiltInSynFamTyCon{}           = unmatchableDataConTy
 
 -- | Is this flavour of 'TyCon' an open type family or a data family?
 tcFlavourIsOpen :: TyConFlavour -> Bool

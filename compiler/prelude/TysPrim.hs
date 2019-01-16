@@ -25,6 +25,8 @@ module TysPrim(
         runtimeRep1TyVar, runtimeRep2TyVar, runtimeRep1Ty, runtimeRep2Ty,
         openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar,
 
+        matchabilityTy, matchabilityTyVar,
+
         -- Kind constructors...
         tYPETyCon, tYPETyConName,
 
@@ -32,6 +34,8 @@ module TysPrim(
         tYPE, primRepToRuntimeRep,
 
         funTyCon, funTyConName,
+        funTyConUnmatchable, funTyConUnmatchableName,
+        funTyConMatchable, funTyConMatchableName,
         unexposedPrimTyCons, exposedPrimTyCons, primTyCons,
 
         charPrimTyCon,          charPrimTy, charPrimTyConName,
@@ -104,7 +108,10 @@ import {-# SOURCE #-} TysWiredIn
   , int64ElemRepDataConTy, word8ElemRepDataConTy, word16ElemRepDataConTy
   , word32ElemRepDataConTy, word64ElemRepDataConTy, floatElemRepDataConTy
   , doubleElemRepDataConTy
-  , mkPromotedListTy )
+  , mkPromotedListTy
+  , matchabilityTy
+  , matchableDataConTy
+  , unmatchableDataConTy )
 
 import Var              ( TyVar, mkTyVar )
 import Name
@@ -117,7 +124,9 @@ import Outputable
 import TyCoRep   -- Doesn't need special access, but this is easier to avoid
                  -- import loops which show up if you import Type instead
 
+import CoAxiom ( trivialBuiltInFamily )
 import Data.Char
+import {-# SOURCE #-} DataCon ( buildSynTyCon )
 
 {-
 ************************************************************************
@@ -355,6 +364,10 @@ runtimeRep1Ty, runtimeRep2Ty :: Type
 runtimeRep1Ty = mkTyVarTy runtimeRep1TyVar
 runtimeRep2Ty = mkTyVarTy runtimeRep2TyVar
 
+matchabilityTyVar :: TyVar
+matchabilityTyVar
+  = mkTemplateTyVars (repeat matchabilityTy) !! 12 -- 'm'
+
 openAlphaTyVar, openBetaTyVar :: TyVar
 [openAlphaTyVar,openBetaTyVar]
   = mkTemplateTyVars [tYPE runtimeRep1Ty, tYPE runtimeRep2Ty]
@@ -372,23 +385,93 @@ openBetaTy  = mkTyVarTy openBetaTyVar
 -}
 
 funTyConName :: Name
-funTyConName = mkPrimTyConName (fsLit "->") funTyConKey funTyCon
+funTyConName = mkPrimTyConName (fsLit "->>") funTyConKey funTyCon
 
--- | The @(->)@ type constructor.
+funTyConUnmatchableName :: Name
+funTyConUnmatchableName = mkPrimTyConName (fsLit "~>") funTyConUnmatchableKey funTyConUnmatchable
+
+funTyConMatchableName :: Name
+funTyConMatchableName = mkPrimTyConName (fsLit "->") funTyConMatchableKey funTyConMatchable
+
+-- | The matchability-polymorphic @(->>)@ type constructor.
 --
 -- @
--- (->) :: forall (rep1 :: RuntimeRep) (rep2 :: RuntimeRep).
---         TYPE rep1 -> TYPE rep2 -> *
+-- (->>) :: forall (m :: Matchability) (rep1 :: RuntimeRep) (rep2 :: RuntimeRep).
+--                          TYPE rep1 -> TYPE rep2 -> *
 -- @
+--
 funTyCon :: TyCon
 funTyCon = mkFunTyCon funTyConName tc_bndrs tc_rep_nm
   where
-    tc_bndrs = [ mkNamedTyConBinder Inferred runtimeRep1TyVar
+    tc_bndrs = [ mkNamedTyConBinder Required matchabilityTyVar
+               , mkNamedTyConBinder Inferred runtimeRep1TyVar
                , mkNamedTyConBinder Inferred runtimeRep2TyVar ]
                ++ mkTemplateAnonTyConBinders [ tYPE runtimeRep1Ty
                                              , tYPE runtimeRep2Ty
                                              ]
     tc_rep_nm = mkPrelTyConRepName funTyConName
+
+-- | The (unmatchable) @(~>)@ type constructor.
+--
+-- @
+-- type (~>) = (->>) @'Unmatchable
+-- @
+--
+-- @
+-- (~>) :: forall (rep1 :: RuntimeRep) (rep2 :: RuntimeRep).
+--         TYPE rep1 -> TYPE rep2 -> *
+-- @
+funTyConUnmatchable :: TyCon
+funTyConUnmatchable
+  = fun_ty_con_syn funTyConUnmatchableName unmatchableDataConTy
+
+-- | The (matchable) @(->)@ type constructor.
+--
+-- @
+-- type (->) = (->>) @'Matchable
+-- @
+--
+-- @
+-- (->) :: forall (rep1 :: RuntimeRep) (rep2 :: RuntimeRep).
+--         TYPE rep1 -> TYPE rep2 -> *
+-- @
+funTyConMatchable :: TyCon
+funTyConMatchable
+  = fun_ty_con_syn funTyConMatchableName matchableDataConTy
+
+-- | Build the matchability-monomorphic synonyms.
+--
+-- See Note [Matchability-monomorphic arrow synonyms]
+fun_ty_con_syn :: Name -> Matchability -> TyCon
+fun_ty_con_syn name matchability
+  = buildSynTyCon name [] (mkTyConKindM tc_bndrs liftedTypeKind) [] rhs
+  where
+    rhs = TyConApp funTyCon [matchability]
+    tc_bndrs = [ mkNamedTyConBinder Inferred runtimeRep1TyVar
+               , mkNamedTyConBinder Inferred runtimeRep2TyVar ]
+               ++ mkTemplateAnonTyConBinders [ tYPE runtimeRep1Ty
+                                             , tYPE runtimeRep2Ty
+                                             ]
+
+{-
+
+Note [Matchability-monomorphic arrow synonyms]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The (->) and (~>) types are just synonyms for (->>) 'Matchable and (->>)
+'Unmatchable respectively.
+
+This requires that matchability is the *first* argument of the arrow kind,
+otherwise the variables would need to be bound on the LHS of the type synonyms
+and reordered on the RHS, which would in turn make the synonym *unmatchable*!
+
+But (->) and (~>) really *are* matchable, and we do want to think of them as
+type constructors.
+
+This might become problematic in the future, when other annotations on the
+arrow kind will compete for the first position.
+
+-}
 
 {-
 ************************************************************************

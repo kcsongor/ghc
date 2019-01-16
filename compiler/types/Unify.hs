@@ -992,11 +992,13 @@ unify_ty env ty1 ty2 _kco
         -- NB: we've already dealt with type variables,
         -- so if one type is an App the other one jolly well better be too
 unify_ty env (AppTy ty1a ty1b) ty2 _kco
-  | Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe ty2
+  | Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe False ty2
+  , isMatchableFunTy ty1a
   = unify_ty_app env ty1a [ty1b] ty2a [ty2b]
 
 unify_ty env ty1 (AppTy ty2a ty2b) _kco
-  | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe ty1
+  | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe False ty1
+  , isMatchableFunTy ty2a
   = unify_ty_app env ty1a [ty1b] ty2a [ty2b]
 
 unify_ty _ (LitTy x) (LitTy y) _kco | x == y = return ()
@@ -1015,7 +1017,7 @@ unify_ty env (CoercionTy co1) (CoercionTy co2) kco
              , not (cv `elemVarEnv` c_subst)
              , BindMe <- tvBindFlag env cv
              -> do { checkRnEnv env (tyCoVarsOfCo co2)
-                   ; let (co_l, co_r) = decomposeFunCo Nominal kco
+                   ; let (_, co_l, co_r) = decomposeFunCo Nominal kco
                       -- cv :: t1 ~ t2
                       -- co2 :: s1 ~ s2
                       -- co_l :: t1 ~ s1
@@ -1029,8 +1031,8 @@ unify_ty _ _ _ _ = surelyApart
 
 unify_ty_app :: UMEnv -> Type -> [Type] -> Type -> [Type] -> UM ()
 unify_ty_app env ty1 ty1args ty2 ty2args
-  | Just (ty1', ty1a) <- repSplitAppTy_maybe ty1
-  , Just (ty2', ty2a) <- repSplitAppTy_maybe ty2
+  | Just (ty1', ty1a) <- repSplitAppTy_maybe False ty1
+  , Just (ty2', ty2a) <- repSplitAppTy_maybe False ty2
   = unify_ty_app env ty1' (ty1a : ty1args) ty2' (ty2a : ty2args)
 
   | otherwise
@@ -1432,21 +1434,21 @@ ty_co_match menv subst (AppTy ty1a ty1b) co _lkco _rkco
   | Just (co2, arg2) <- splitAppCo_maybe co     -- c.f. Unify.match on AppTy
   = ty_co_match_app menv subst ty1a [ty1b] co2 [arg2]
 ty_co_match menv subst ty1 (AppCo co2 arg2) _lkco _rkco
-  | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
+  | Just (ty1a, ty1b) <- repSplitAppTy_maybe False ty1
        -- yes, the one from Type, not TcType; this is for coercion optimization
   = ty_co_match_app menv subst ty1a [ty1b] co2 [arg2]
 
 ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos) _lkco _rkco
   = ty_co_match_tc menv subst tc1 tys tc2 cos
-ty_co_match menv subst (FunTy _ ty1 ty2) co _lkco _rkco
-    -- Despite the fact that (->) is polymorphic in four type variables (two
-    -- runtime rep and two types), we shouldn't need to explicitly unify the
+ty_co_match menv subst (FunTy _ mty ty1 ty2) co _lkco _rkco
+    -- Despite the fact that (->) is polymorphic in five type variables (matchability, two
+    -- runtime rep, and two types), we shouldn't need to explicitly unify the
     -- runtime reps here; unifying the types themselves should be sufficient.
     -- See Note [Representation of function types].
-  | Just (tc, [_,_,co1,co2]) <- splitTyConAppCo_maybe co
+  | Just (tc, [mco,_,_,co1,co2]) <- splitTyConAppCo_maybe co
   , tc == funTyCon
-  = let Pair lkcos rkcos = traverse (fmap mkNomReflCo . coercionKind) [co1,co2]
-    in ty_co_match_args menv subst [ty1, ty2] [co1, co2] lkcos rkcos
+  = let Pair lkcos rkcos = traverse (fmap mkNomReflCo . coercionKind) [mco,co1,co2]
+    in ty_co_match_args menv subst [mty, ty1, ty2] [mco, co1, co2] lkcos rkcos
 
 ty_co_match menv subst (ForAllTy (Bndr tv1 _) ty1)
                        (ForAllCo tv2 kind_co2 co2)
@@ -1521,7 +1523,7 @@ ty_co_match_app :: MatchEnv -> LiftCoEnv
                 -> Type -> [Type] -> Coercion -> [Coercion]
                 -> Maybe LiftCoEnv
 ty_co_match_app menv subst ty1 ty1args co2 co2args
-  | Just (ty1', ty1a) <- repSplitAppTy_maybe ty1
+  | Just (ty1', ty1a) <- repSplitAppTy_maybe False ty1
   , Just (co2', co2a) <- splitAppCo_maybe co2
   = ty_co_match_app menv subst ty1' (ty1a : ty1args) co2' (co2a : co2args)
 
@@ -1550,10 +1552,10 @@ pushRefl co =
   case (isReflCo_maybe co) of
     Just (AppTy ty1 ty2, Nominal)
       -> Just (AppCo (mkReflCo Nominal ty1) (mkNomReflCo ty2))
-    Just (FunTy _ ty1 ty2, r)
+    Just (FunTy _ mty ty1 ty2, r)
       | Just rep1 <- getRuntimeRep_maybe ty1
       , Just rep2 <- getRuntimeRep_maybe ty2
-      ->  Just (TyConAppCo r funTyCon [ mkReflCo r rep1, mkReflCo r rep2
+      ->  Just (TyConAppCo r funTyCon [ mkNomReflCo mty,  mkReflCo r rep1, mkReflCo r rep2 -- TODO (csongor): I don't understand how we can have representational coercions for the runtime reps...
                                        , mkReflCo r ty1,  mkReflCo r ty2 ])
     Just (TyConApp tc tys, r)
       -> Just (TyConAppCo r tc (zipWith mkReflCo (tyConRolesX r tc) tys))

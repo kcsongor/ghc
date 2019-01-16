@@ -1015,7 +1015,7 @@ ignoreTyCon env tycon
 forceSpecBndr env var = forceSpecFunTy env . snd . splitForAllTys . varType $ var
 
 forceSpecFunTy :: ScEnv -> Type -> Bool
-forceSpecFunTy env = any (forceSpecArgTy env) . fst . splitFunTys
+forceSpecFunTy env = any (forceSpecArgTy env . snd) . fst . splitFunTys
 
 forceSpecArgTy :: ScEnv -> Type -> Bool
 forceSpecArgTy env ty

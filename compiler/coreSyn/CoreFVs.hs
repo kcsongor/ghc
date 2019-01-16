@@ -353,7 +353,8 @@ orphNamesOfType (TyConApp tycon tys) = orphNamesOfTyCon tycon
                                        `unionNameSet` orphNamesOfTypes tys
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
                                        `unionNameSet` orphNamesOfType res
-orphNamesOfType (FunTy _ arg res)    = unitNameSet funTyConName    -- NB!  See #8535
+orphNamesOfType (FunTy _ m arg res)  = unitNameSet funTyConName    -- NB!  See #8535
+                                       `unionNameSet` orphNamesOfType m
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
@@ -377,7 +378,8 @@ orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` or
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (ForAllCo _ kind_co co)
   = orphNamesOfCo kind_co `unionNameSet` orphNamesOfCo co
-orphNamesOfCo (FunCo _ co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
+orphNamesOfCo (FunCo _ mco co1 co2)
+  = orphNamesOfCo mco `unionNameSet` orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCos cos
 orphNamesOfCo (UnivCo p _ t1 t2)    = orphNamesOfProv p `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2

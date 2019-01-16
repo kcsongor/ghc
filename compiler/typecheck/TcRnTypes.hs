@@ -2225,7 +2225,7 @@ getUserTypeErrorMsg ct = findUserTypeError (ctPred ct)
                              : map findUserTypeError (subTys t)
                              )
 
-  subTys t            = case splitAppTys t of
+  subTys t            = case splitAppTys False t of
                           (t,[]) ->
                             case splitTyConApp_maybe t of
                               Nothing     -> []

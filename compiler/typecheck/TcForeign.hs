@@ -13,7 +13,7 @@ module checks to see if a foreign declaration has got a legal type.
 -}
 
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, ViewPatterns #-}
 
 module TcForeign
         ( tcForeignImports
@@ -105,6 +105,10 @@ we cannot easily go from an R coercion to an N one, so we forbid N roles
 on FFI type constructors. Currently, only two such type constructors exist:
 IO and FunPtr. Thus, this is not an onerous burden.
 
+For FunTy, the first three parameters (the two runtime reps and the
+matchability) are always kind coercions, therefore nominal. These are not
+downgraded from representational, and instead handled as a special case.
+
 If we ever want to lift this restriction, we would need to make 'go' take
 the target role as a parameter. This wouldn't be hard, but it's a complication
 not yet necessary and so is not yet implemented.
@@ -145,10 +149,21 @@ normaliseFfiType' env ty0 = go initRecTc ty0
     go_tc_app rec_nts tc tys
         -- We don't want to look through the IO newtype, even if it is
         -- in scope, so we have a special case for it:
-        | tc_key `elem` [ioTyConKey, funPtrTyConKey, funTyConKey]
+        | tc_key `elem` [ioTyConKey, funPtrTyConKey]
                   -- These *must not* have nominal roles on their parameters!
                   -- See Note [FFI type roles]
         = children_only
+
+        | tc_key == funTyConKey
+        -- See Note [FFI type roles]
+        , [m, _r1, _r2, ty1, ty2] <- tys
+
+        = do { (co1, ty1', b1) <- go rec_nts ty1
+             ; (co2, ty2', b2) <- go rec_nts ty2
+             ; return ( mkFunCo Representational (mkNomReflCo m) co1 co2
+                      , mkVisFunTy m ty1' ty2'
+                      , unionBags b1 b2)
+             }
 
         | isNewTyCon tc         -- Expand newtypes
         , Just rec_nts' <- checkRecTc rec_nts tc
@@ -251,9 +266,9 @@ tcFImport (L dloc fo@(ForeignImport { fd_name = L nloc nm, fd_sig_ty = hs_ty
        ; let
            -- Drop the foralls before inspecting the
            -- structure of the foreign type.
-             (bndrs, res_ty)   = tcSplitPiTys norm_sig_ty
-             arg_tys           = mapMaybe binderRelevantType_maybe bndrs
-             id                = mkLocalId nm sig_ty
+             (unzip->(_, bndrs), res_ty) = tcSplitPiTys norm_sig_ty
+             arg_tys                     = mapMaybe binderRelevantType_maybe bndrs
+             id                          = mkLocalId nm sig_ty
                  -- Use a LocalId to obey the invariant that locally-defined
                  -- things are LocalIds.  However, it does not need zonking,
                  -- (so TcHsSyn.zonkForeignExports ignores it).
@@ -277,7 +292,7 @@ tcCheckFIType arg_tys res_ty (CImport (L lc cconv) safety mh l@(CLabel _) src)
   = do checkCg checkCOrAsmOrLlvmOrInterp
        -- NB check res_ty not sig_ty!
        --    In case sig_ty is (forall a. ForeignPtr a)
-       check (isFFILabelTy (mkVisFunTys arg_tys res_ty)) (illegalForeignTyErr Outputable.empty)
+       check (isFFILabelTy (mkVisFunTysU arg_tys res_ty)) (illegalForeignTyErr Outputable.empty)
        cconv' <- checkCConv cconv
        return (CImport (L lc cconv') safety mh l src)
 
@@ -293,7 +308,7 @@ tcCheckFIType arg_tys res_ty (CImport (L lc cconv) safety mh CWrapper src) = do
                         checkForeignRes nonIOok  checkSafe isFFIExportResultTy res1_ty
                         checkForeignRes mustBeIO checkSafe (isFFIDynTy arg1_ty) res_ty
                   where
-                     (arg1_tys, res1_ty) = tcSplitFunTys arg1_ty
+                     (unzip->(_, arg1_tys), res1_ty) = tcSplitFunTys arg1_ty
         _ -> addErrTc (illegalForeignTyErr Outputable.empty (text "One argument expected"))
     return (CImport (L lc cconv') safety mh CWrapper src)
 
@@ -307,7 +322,7 @@ tcCheckFIType arg_tys res_ty idecl@(CImport (L lc cconv) (L ls safety) mh
           addErrTc (illegalForeignTyErr Outputable.empty (text "At least one argument expected"))
         (arg1_ty:arg_tys) -> do
           dflags <- getDynFlags
-          let curried_res_ty = mkVisFunTys arg_tys res_ty
+          let curried_res_ty = mkVisFunTysU arg_tys res_ty
           check (isFFIDynTy curried_res_ty arg1_ty)
                 (illegalForeignTyErr argument)
           checkForeignArgs (isFFIArgumentTy dflags safety) arg_tys
@@ -426,8 +441,8 @@ tcCheckFEType sig_ty (CExport (L l (CExportStatic esrc str cconv)) src) = do
   where
       -- Drop the foralls before inspecting n
       -- the structure of the foreign type.
-    (bndrs, res_ty) = tcSplitPiTys sig_ty
-    arg_tys         = mapMaybe binderRelevantType_maybe bndrs
+    (unzip->(_, bndrs), res_ty) = tcSplitPiTys sig_ty
+    arg_tys                     = mapMaybe binderRelevantType_maybe bndrs
 
 {-
 ************************************************************************

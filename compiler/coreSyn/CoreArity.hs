@@ -121,7 +121,7 @@ typeArity ty
       | Just (_, ty')  <- splitForAllTy_maybe ty
       = go rec_nts ty'
 
-      | Just (arg,res) <- splitFunTy_maybe ty
+      | Just (_,arg,res) <- splitFunTy_maybe ty
       = typeOneShot arg : go rec_nts res
 
       | Just (tc,tys) <- splitTyConApp_maybe ty
@@ -1049,7 +1049,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
            -- Avoid free vars of the original expression
          in go n_n n_subst ty' (EtaVar n_tcv : eis)
 
-       | Just (arg_ty, res_ty) <- splitFunTy_maybe ty
+       | Just (_, arg_ty, res_ty) <- splitFunTy_maybe ty
        , not (isTypeLevPoly arg_ty)
           -- See Note [Levity polymorphism invariants] in CoreSyn
           -- See also test case typecheck/should_run/EtaExpandLevPoly
@@ -1132,7 +1132,7 @@ etaBodyForJoinPoint need_args body
       | Just (tv, res_ty) <- splitForAllTy_maybe ty
       , let (subst', tv') = Type.substVarBndr subst tv
       = go (n-1) res_ty subst' (tv' : rev_bs) (e `App` varToCoreExpr tv')
-      | Just (arg_ty, res_ty) <- splitFunTy_maybe ty
+      | Just (_,arg_ty, res_ty) <- splitFunTy_maybe ty
       , let (subst', b) = freshEtaId n subst arg_ty
       = go (n-1) res_ty subst' (b : rev_bs) (e `App` Var b)
       | otherwise

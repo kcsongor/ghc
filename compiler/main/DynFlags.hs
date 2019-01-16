@@ -4382,6 +4382,7 @@ xFlagsDeps = [
   flagSpec' "IncoherentInstances"             LangExt.IncoherentInstances
                                               setIncoherentInsts,
   flagSpec "TypeFamilyDependencies"           LangExt.TypeFamilyDependencies,
+  flagSpec "UnsaturatedTypeFamilies"          LangExt.UnsaturatedTypeFamilies,
   flagSpec "InstanceSigs"                     LangExt.InstanceSigs,
   flagSpec "ApplicativeDo"                    LangExt.ApplicativeDo,
   flagSpec "InterruptibleFFI"                 LangExt.InterruptibleFFI,
@@ -4559,6 +4560,7 @@ impliedXFlags
     , (LangExt.FunctionalDependencies,    turnOn, LangExt.MultiParamTypeClasses)
     , (LangExt.MultiParamTypeClasses,     turnOn, LangExt.ConstrainedClassMethods)  -- c.f. #7854
     , (LangExt.TypeFamilyDependencies,    turnOn, LangExt.TypeFamilies)
+    , (LangExt.UnsaturatedTypeFamilies,   turnOn, LangExt.TypeFamilies)
 
     , (LangExt.RebindableSyntax, turnOff, LangExt.ImplicitPrelude)      -- NB: turn off!
 

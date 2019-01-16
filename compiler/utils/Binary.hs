@@ -82,7 +82,11 @@ import Data.Time
 import Type.Reflection
 import Type.Reflection.Unsafe
 import Data.Kind (Type)
+#if __GLASGOW_HASKELL__ >= 807
+import GHC.Exts (Matchability(..), TYPE, RuntimeRep(..), VecCount(..), VecElem(..))
+#else
 import GHC.Exts (TYPE, RuntimeRep(..), VecCount(..), VecElem(..))
+#endif
 import Control.Monad            ( when )
 import System.IO as IO
 import System.IO.Unsafe         ( unsafeInterleaveIO )
@@ -680,7 +684,11 @@ instance Binary KindRep where
     put_ bh (KindRepTyConApp tc k) = putByte bh 0 >> put_ bh tc >> put_ bh k
     put_ bh (KindRepVar bndr) = putByte bh 1 >> put_ bh bndr
     put_ bh (KindRepApp a b) = putByte bh 2 >> put_ bh a >> put_ bh b
+#if __GLASGOW_HASKELL__ >= 807
+    put_ bh (KindRepFun m a b) = putByte bh 3 >> put_ bh m >> put_ bh a >> put_ bh b
+#else
     put_ bh (KindRepFun a b) = putByte bh 3 >> put_ bh a >> put_ bh b
+#endif
     put_ bh (KindRepTYPE r) = putByte bh 4 >> put_ bh r
     put_ bh (KindRepTypeLit sort r) = putByte bh 5 >> put_ bh sort >> put_ bh r
 
@@ -690,7 +698,11 @@ instance Binary KindRep where
           0 -> KindRepTyConApp <$> get bh <*> get bh
           1 -> KindRepVar <$> get bh
           2 -> KindRepApp <$> get bh <*> get bh
+#if __GLASGOW_HASKELL__ >= 807
+          3 -> KindRepFun <$> get bh <*> get bh <*> get bh
+#else
           3 -> KindRepFun <$> get bh <*> get bh
+#endif
           4 -> KindRepTYPE <$> get bh
           5 -> KindRepTypeLit <$> get bh <*> get bh
           _ -> fail "Binary.putKindRep: invalid tag"
@@ -720,10 +732,18 @@ putTypeRep bh (App f x) = do
     put_ bh (2 :: Word8)
     putTypeRep bh f
     putTypeRep bh x
+#if __GLASGOW_HASKELL__ >= 807
+putTypeRep bh (Fun m arg res) = do
+    put_ bh (3 :: Word8)
+    putTypeRep bh m
+    putTypeRep bh arg
+    putTypeRep bh res
+#else
 putTypeRep bh (Fun arg res) = do
     put_ bh (3 :: Word8)
     putTypeRep bh arg
     putTypeRep bh res
+#endif
 putTypeRep _ _ = fail "Binary.putTypeRep: Impossible"
 
 getSomeTypeRep :: BinHandle -> IO SomeTypeRep
@@ -738,29 +758,45 @@ getSomeTypeRep bh = do
         2 -> do SomeTypeRep f <- getSomeTypeRep bh
                 SomeTypeRep x <- getSomeTypeRep bh
                 case typeRepKind f of
+#if __GLASGOW_HASKELL__ >= 807
+                  Fun m arg res ->
+                    case m `eqTypeRep` (typeRep :: TypeRep 'Matchable) of
+                      Nothing -> failure "Kind mismatch in type application" []
+                      Just HRefl ->
+#else
                   Fun arg res ->
-                      case arg `eqTypeRep` typeRepKind x of
-                        Just HRefl ->
-                            case typeRepKind res `eqTypeRep` (typeRep :: TypeRep Type) of
-                              Just HRefl -> return $ SomeTypeRep $ mkTrApp f x
-                              _ -> failure "Kind mismatch in type application" []
-                        _ -> failure "Kind mismatch in type application"
-                             [ "    Found argument of kind: " ++ show (typeRepKind x)
-                             , "    Where the constructor:  " ++ show f
-                             , "    Expects kind:           " ++ show arg
-                             ]
+#endif
+                        case arg `eqTypeRep` typeRepKind x of
+                          Just HRefl ->
+                              case typeRepKind res `eqTypeRep` (typeRep :: TypeRep Type) of
+                                Just HRefl -> return $ SomeTypeRep $ mkTrApp f x
+                                _ -> failure "Kind mismatch in type application" []
+                          _ -> failure "Kind mismatch in type application"
+                               [ "    Found argument of kind: " ++ show (typeRepKind x)
+                               , "    Where the constructor:  " ++ show f
+                               , "    Expects kind:           " ++ show arg
+                               ]
                   _ -> failure "Applied non-arrow"
                        [ "    Applied type: " ++ show f
                        , "    To argument:  " ++ show x
                        ]
-        3 -> do SomeTypeRep arg <- getSomeTypeRep bh
+        3 -> do
+#if __GLASGOW_HASKELL__ >= 807
+                SomeTypeRep m <- getSomeTypeRep bh
+#endif
+                SomeTypeRep arg <- getSomeTypeRep bh
                 SomeTypeRep res <- getSomeTypeRep bh
                 if
                   | App argkcon _ <- typeRepKind arg
                   , App reskcon _ <- typeRepKind res
                   , Just HRefl <- argkcon `eqTypeRep` tYPErep
                   , Just HRefl <- reskcon `eqTypeRep` tYPErep
+#if __GLASGOW_HASKELL__ >= 807
+                  , Just HRefl <- typeRepKind m `eqTypeRep` (typeRep :: TypeRep Matchability)
+                  -> return $ SomeTypeRep $ Fun m arg res
+#else
                   -> return $ SomeTypeRep $ Fun arg res
+#endif
                   | otherwise -> failure "Kind mismatch" []
         _ -> failure "Invalid SomeTypeRep" []
   where

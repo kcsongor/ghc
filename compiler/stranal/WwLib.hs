@@ -180,7 +180,7 @@ mkWwBodies dflags fam_envs rhs_fvs fun_id demands res_info
     -- Note [Do not split void functions]
     only_one_void_argument
       | [d] <- demands
-      , Just (arg_ty1, _) <- splitFunTy_maybe fun_ty
+      , Just (_,arg_ty1, _) <- splitFunTy_maybe fun_ty
       , isAbsDmd d && isVoidTy arg_ty1
       = True
       | otherwise
@@ -411,7 +411,7 @@ mkWWargs subst fun_ty demands
   = return ([], id, id, substTy subst fun_ty)
 
   | (dmd:demands') <- demands
-  , Just (arg_ty, fun_ty') <- splitFunTy_maybe fun_ty
+  , Just (_,arg_ty, fun_ty') <- splitFunTy_maybe fun_ty
   = do  { uniq <- getUniqueM
         ; let arg_ty' = substTy subst arg_ty
               id = mk_wrap_arg uniq arg_ty' dmd
@@ -960,7 +960,7 @@ findTypeShape fam_envs ty
   , Just con <- isDataProductTyCon_maybe tc
   = TsProd (map (findTypeShape fam_envs) $ dataConInstArgTys con tc_args)
 
-  | Just (_, res) <- splitFunTy_maybe ty
+  | Just (_,_, res) <- splitFunTy_maybe ty
   = TsFun (findTypeShape fam_envs res)
 
   | Just (_, ty') <- splitForAllTy_maybe ty

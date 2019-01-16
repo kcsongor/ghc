@@ -412,7 +412,7 @@ contHoleType (StrictBind { sc_bndr = b, sc_dup = dup, sc_env = se })
 contHoleType (StrictArg { sc_fun = ai })      = funArgTy (ai_type ai)
 contHoleType (ApplyToTy  { sc_hole_ty = ty }) = ty  -- See Note [The hole type in ApplyToTy]
 contHoleType (ApplyToVal { sc_arg = e, sc_env = se, sc_dup = dup, sc_cont = k })
-  = mkVisFunTy (perhapsSubstTy dup se (exprType e))
+  = mkVisFunTyU (perhapsSubstTy dup se (exprType e))
                (contHoleType k)
 contHoleType (Select { sc_dup = d, sc_bndr =  b, sc_env = se })
   = perhapsSubstTy d se (idType b)
@@ -518,7 +518,7 @@ mkArgInfo env fun rules n_val_args call_cont
 
     add_type_str _ [] = []
     add_type_str fun_ty all_strs@(str:strs)
-      | Just (arg_ty, fun_ty') <- splitFunTy_maybe fun_ty        -- Add strict-type info
+      | Just (_,arg_ty, fun_ty') <- splitFunTy_maybe fun_ty        -- Add strict-type info
       = (str || Just False == isLiftedType_maybe arg_ty)
         : add_type_str fun_ty' strs
           -- If the type is levity-polymorphic, we can't know whether it's

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-} -- TODO (csongor)
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NoImplicitPrelude #-}

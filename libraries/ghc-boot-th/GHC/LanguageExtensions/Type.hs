@@ -52,6 +52,7 @@ data Extension
    | BangPatterns
    | TypeFamilies
    | TypeFamilyDependencies
+   | UnsaturatedTypeFamilies
    | TypeInType
    | OverloadedStrings
    | OverloadedLists

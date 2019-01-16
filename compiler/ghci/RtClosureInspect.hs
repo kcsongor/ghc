@@ -752,9 +752,9 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
          traceTR (text "Following a MutVar")
          contents_tv <- newVar liftedTypeKind
          MASSERT(isUnliftedType my_ty)
-         (mutvar_ty,_) <- instScheme $ quantifyType $ mkVisFunTy
+         (mutvar_ty,_) <- instScheme $ quantifyType $ mkVisFunTyU
                             contents_ty (mkTyConApp tycon [world,contents_ty])
-         addConstraint (mkVisFunTy contents_tv my_ty) mutvar_ty
+         addConstraint (mkVisFunTyU contents_tv my_ty) mutvar_ty
          x <- go (pred max_depth) contents_tv contents_ty contents
          return (RefWrap my_ty x)
 
@@ -1255,11 +1255,12 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
                           ppr tv, equals, ppr ty_v]
          go ty_v r
 -- FunTy inductive case
-    | Just (l1,l2) <- splitFunTy_maybe l
-    , Just (r1,r2) <- splitFunTy_maybe r
+    | Just (m1, l1,l2) <- splitFunTy_maybe l
+    , Just (m2, r1,r2) <- splitFunTy_maybe r
     = do r2' <- go l2 r2
          r1' <- go l1 r1
-         return (mkVisFunTy r1' r2')
+         m'  <- go m1 m2
+         return (mkVisFunTy m' r1' r2')
 -- TyconApp Inductive case; this is the interesting bit.
     | Just (tycon_l, _) <- tcSplitTyConApp_maybe lhs
     , Just (tycon_r, _) <- tcSplitTyConApp_maybe rhs
@@ -1324,7 +1325,7 @@ isMonomorphicOnNonPhantomArgs ty
   , concrete_args <- [ arg | (tyv,arg) <- tyConTyVars tc `zip` all_args
                            , tyv `notElem` phantom_vars]
   = all isMonomorphicOnNonPhantomArgs concrete_args
-  | Just (ty1, ty2) <- splitFunTy_maybe ty
+  | Just (_,ty1, ty2) <- splitFunTy_maybe ty
   = all isMonomorphicOnNonPhantomArgs [ty1,ty2]
   | otherwise = isMonomorphic ty
 

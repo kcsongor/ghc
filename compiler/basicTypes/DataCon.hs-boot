@@ -3,12 +3,13 @@ module DataCon where
 import GhcPrelude
 import Var( TyVar, TyCoVar, TyVarBinder )
 import Name( Name, NamedThing )
-import {-# SOURCE #-} TyCon( TyCon )
+import {-# SOURCE #-} TyCon ( TyConBinder, TyCon )
 import FieldLabel ( FieldLabel )
 import Unique ( Uniquable )
 import Outputable ( Outputable, OutputableBndr )
 import BasicTypes (Arity)
-import {-# SOURCE #-} TyCoRep ( Type, ThetaType )
+import {-# SOURCE #-} TyCoRep ( Type, ThetaType, KnotTied, Kind )
+import CoAxiom ( Role )
 
 data DataCon
 data DataConRep
@@ -26,6 +27,9 @@ dataConStupidTheta :: DataCon -> ThetaType
 dataConFullSig :: DataCon
                -> ([TyVar], [TyCoVar], [EqSpec], ThetaType, [Type], Type)
 isUnboxedSumCon :: DataCon -> Bool
+
+buildSynTyCon :: Name -> [KnotTied TyConBinder] -> Kind
+              -> [Role] -> KnotTied Type -> TyCon
 
 instance Eq DataCon
 instance Uniquable DataCon

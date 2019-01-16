@@ -49,7 +49,7 @@ import RnFixity         ( lookupFieldFixityRn, lookupFixityRn
 import TcRnMonad
 import RdrName
 import PrelNames
-import TysPrim          ( funTyConName )
+import TysPrim          ( funTyConName, funTyConMatchableName, funTyConUnmatchableName )
 import Name
 import SrcLoc
 import NameSet
@@ -499,7 +499,7 @@ rnHsTyKi env ty@(HsQualTy { hst_ctxt = lctxt, hst_body = tau })
                           , hst_body =  tau' }
                 , fvs1 `plusFV` fvs2) }
 
-rnHsTyKi env (HsTyVar _ ip (dL->L loc rdr_name))
+rnHsTyKi env tv@(HsTyVar _ ip (dL->L loc rdr_name))
   = do { when (isRnKindLevel env && isRdrTyVar rdr_name) $
          unlessXOptM LangExt.PolyKinds $ addErr $
          withHsDocContext (rtke_ctxt env) $
@@ -507,7 +507,9 @@ rnHsTyKi env (HsTyVar _ ip (dL->L loc rdr_name))
               , text "Perhaps you intended to use PolyKinds" ]
            -- Any type variable at the kind level is illegal without the use
            -- of PolyKinds (see #14710)
-       ; name <- rnTyVar env rdr_name
+
+       ; rdr_name_fun <- rnHsFunTyCon env rdr_name
+       ; name <- rnTyVar env rdr_name_fun
        ; return (HsTyVar noExt ip (cL loc name), unitFV name) }
 
 rnHsTyKi env ty@(HsOpTy _ ty1 l_op ty2)
@@ -541,16 +543,18 @@ rnHsTyKi env ty@(HsRecTy _ flds)
                                    2 (ppr ty))
            ; return [] }
 
-rnHsTyKi env (HsFunTy _ ty1 ty2)
+rnHsTyKi env (HsFunTy _ m ty1 ty2)
   = do { (ty1', fvs1) <- rnLHsTyKi env ty1
         -- Might find a for-all as the arg of a function type
        ; (ty2', fvs2) <- rnLHsTyKi env ty2
         -- Or as the result.  This happens when reading Prelude.hi
         -- when we find return :: forall m. Monad m -> forall a. a -> m a
 
+       ; (m', fvs3) <- rnHsMatchability env m
+
         -- Check for fixity rearrangements
-       ; res_ty <- mkHsOpTyRn (HsFunTy noExt) funTyConName funTyFixity ty1' ty2'
-       ; return (res_ty, fvs1 `plusFV` fvs2) }
+       ; res_ty <- mkHsOpTyRn (HsFunTy noExt m') funTyConName funTyFixity ty1' ty2'
+       ; return (res_ty, fvs1 `plusFV` fvs2 `plusFV` fvs3) }
 
 rnHsTyKi env listTy@(HsListTy _ ty)
   = do { data_kinds <- xoptM LangExt.DataKinds
@@ -645,6 +649,70 @@ rnHsTyKi env ty@(HsExplicitTupleTy _ tys)
 rnHsTyKi env (HsWildCardTy _)
   = do { checkAnonWildCard env
        ; return (HsWildCardTy noExt, emptyFVs) }
+
+-- See Note [Renaming arrow types]
+rnHsFunTyCon :: RnTyKiEnv -> RdrName -> RnM RdrName
+rnHsFunTyCon env rdr_name
+  | not (isRnKindLevel env)
+  , rdr_name == Exact funTyConMatchableName
+    = do { traceRn "rnHsFunTyCon" (ppr rdr_name)
+         ; return (Exact funTyConUnmatchableName)
+         }
+  | otherwise = return rdr_name
+
+{-
+Note [Renaming arrow types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+TODO (csongor): revisit this if there are any changes to the syntax.
+
+At the kind level, we distinguish between arrows based on their matchability.
+(->) stands for the *matchable* arrow kind (which is the kind of type
+constructors), and (~>) for the *unmatchable* arrow (the kind of type families).
+
+This way,
+  Maybe :: * -> *
+  Id    :: * ~> *
+where Id is a type family.
+
+This distinction only exists at the *kind level*, but the types and kinds share
+the same syntax. This means that the following signature
+
+  odd :: Int -> Bool
+
+should actually mean
+
+  odd :: Int ~> Bool
+
+because all term-level functions are unmatchable. (For now at least: the type
+of data constructors could be matchable in theory, but the motivation for
+the kind-level dichotomy does not apply at the type level.)
+
+The solution is to rename all (->)s to (~>)s in types, but *not* kinds.
+
+There are situations where we don't really know whether we're at the type level
+or at the kind level (thanks to TypeInType):
+
+  instance Monad ((->) a)
+
+This instance really means
+
+  instance Monad ((~>) a)
+
+but that it is the type arrow is not manifest from the instance signature.
+We rename to (~>), as these instances are a lot more common.
+
+-}
+
+-- See Note [Renaming arrow types]
+rnHsMatchability :: RnTyKiEnv -> LHsMatchability GhcPs -> RnM (LHsMatchability GhcRn, FreeVars)
+rnHsMatchability env HsMatchable
+  | isRnKindLevel env = return (HsMatchable, emptyFVs)
+  | otherwise         = return (HsUnmatchable, emptyFVs) -- all type arrows are unmatchable
+rnHsMatchability _ HsUnmatchable = return (HsUnmatchable, emptyFVs)
+rnHsMatchability env (HsExplicitMatchability m)
+  = do { (m', fvs) <- rnLHsTyKi env m
+       ; return (HsExplicitMatchability m', fvs) }
 
 --------------
 rnTyVar :: RnTyKiEnv -> RdrName -> RnM Name
@@ -1091,9 +1159,9 @@ mkHsOpTyRn mk1 pp_op1 fix1 ty1 (dL->L loc2 (HsOpTy noExt ty21 op2 ty22))
                       (\t1 t2 -> HsOpTy noExt t1 op2 t2)
                       (unLoc op2) fix2 ty21 ty22 loc2 }
 
-mkHsOpTyRn mk1 pp_op1 fix1 ty1 (dL->L loc2 (HsFunTy _ ty21 ty22))
+mkHsOpTyRn mk1 pp_op1 fix1 ty1 (dL->L loc2 (HsFunTy _ m ty21 ty22))
   = mk_hs_op_ty mk1 pp_op1 fix1 ty1
-                (HsFunTy noExt) funTyConName funTyFixity ty21 ty22 loc2
+                (HsFunTy noExt m) funTyConName funTyFixity ty21 ty22 loc2
 
 mkHsOpTyRn mk1 _ _ ty1 ty2              -- Default case, no rearrangment
   = return (mk1 ty1 ty2)
@@ -1700,7 +1768,8 @@ extract_lty (dL->L _ ty) acc
       HsListTy _ ty               -> extract_lty ty acc
       HsTupleTy _ _ tys           -> extract_ltys tys acc
       HsSumTy _ tys               -> extract_ltys tys acc
-      HsFunTy _ ty1 ty2           -> extract_lty ty1 $
+      HsFunTy _ m ty1 ty2         -> extract_matchability m $
+                                     extract_lty ty1 $
                                      extract_lty ty2 acc
       HsIParamTy _ _ ty           -> extract_lty ty acc
       HsOpTy _ ty1 tv ty2         -> extract_tv tv $
@@ -1724,6 +1793,14 @@ extract_lty (dL->L _ ty) acc
       XHsType {}                  -> acc
       -- We deal with these separately in rnLHsTypeWithWildCards
       HsWildCardTy {}             -> acc
+
+extract_matchability :: LHsMatchability GhcPs
+            -> FreeKiTyVarsWithDups -> FreeKiTyVarsWithDups
+extract_matchability m acc
+  = case m of
+      HsMatchable              -> acc
+      HsUnmatchable            -> acc
+      HsExplicitMatchability m -> extract_lty m acc
 
 extractHsTvBndrs :: [LHsTyVarBndr GhcPs]
                  -> FreeKiTyVarsWithDups           -- Free in body

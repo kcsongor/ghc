@@ -1,6 +1,6 @@
 [submodule "libraries/binary"]
 	path = libraries/binary
-	url = ../packages/binary.git
+	url = git@gitlab.haskell.org:kcsongor/binary.git
 	ignore = untracked
 [submodule "libraries/bytestring"]
 	path = libraries/bytestring

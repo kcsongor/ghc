@@ -6,7 +6,7 @@
 Type subsumption and unification
 -}
 
-{-# LANGUAGE CPP, MultiWayIf, TupleSections, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, MultiWayIf, TupleSections, ScopedTypeVariables, ViewPatterns #-}
 
 module TcUnify (
   -- Full-blown subsumption
@@ -196,7 +196,7 @@ matchExpectedFunTys herald arity orig_ty thing_inside
            ; result       <- thing_inside (reverse acc_arg_tys ++ more_arg_tys) res_ty
            ; more_arg_tys <- mapM readExpType more_arg_tys
            ; res_ty       <- readExpType res_ty
-           ; let unif_fun_ty = mkVisFunTys more_arg_tys res_ty
+           ; let unif_fun_ty = mkVisFunTysU more_arg_tys res_ty
            ; wrap <- tcSubTypeDS AppOrigin GenSigCtxt unif_fun_ty fun_ty
                          -- Not a good origin at all :-(
            ; return (result, wrap) }
@@ -320,17 +320,17 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     defer n fun_ty
       = do { arg_tys <- replicateM n newOpenFlexiTyVarTy
            ; res_ty  <- newOpenFlexiTyVarTy
-           ; let unif_fun_ty = mkVisFunTys arg_tys res_ty
+           ; let unif_fun_ty = mkVisFunTysU arg_tys res_ty
            ; co <- unifyType mb_thing fun_ty unif_fun_ty
            ; return (mkWpCastN co, arg_tys, res_ty) }
 
     ------------
     mk_ctxt :: [TcSigmaType] -> TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
     mk_ctxt arg_tys res_ty env
-      = do { let ty = mkVisFunTys arg_tys res_ty
+      = do { let ty = mkVisFunTysU arg_tys res_ty
            ; (env1, zonked) <- zonkTidyTcType env ty
                    -- zonking might change # of args
-           ; let (zonked_args, _) = tcSplitFunTys zonked
+           ; let (unzip -> (_, zonked_args), _) = tcSplitFunTys zonked
                  n_actual         = length zonked_args
                  (env2, unzonked) = tidyOpenType env1 ty
            ; return ( env2
@@ -421,7 +421,7 @@ matchExpectedAppTy orig_ty
     go ty
       | Just ty' <- tcView ty = go ty'
 
-      | Just (fun_ty, arg_ty) <- tcSplitAppTy_maybe ty
+      | Just (fun_ty, arg_ty) <- tcSplitAppTy_maybe False ty
       = return (mkTcNomReflCo orig_ty, (fun_ty, arg_ty))
 
     go (TyVarTy tv)
@@ -441,7 +441,7 @@ matchExpectedAppTy orig_ty
            ; return (co, (ty1, ty2)) }
 
     orig_kind = tcTypeKind orig_ty
-    kind1 = mkVisFunTy liftedTypeKind orig_kind
+    kind1 = mkVisFunTyM liftedTypeKind orig_kind
     kind2 = liftedTypeKind    -- m :: * -> k
                               -- arg type :: *
 
@@ -668,9 +668,9 @@ tc_sub_tc_type eq_orig inst_orig ctxt ty_actual ty_expected
        ; return (sk_wrap <.> inner_wrap) }
   where
     possibly_poly ty
-      | isForAllTy ty                        = True
-      | Just (_, res) <- splitFunTy_maybe ty = possibly_poly res
-      | otherwise                            = False
+      | isForAllTy ty                          = True
+      | Just (_,_, res) <- splitFunTy_maybe ty = possibly_poly res
+      | otherwise                              = False
       -- NB *not* tcSplitFunTy, because here we want
       -- to decompose type-class arguments too
 
@@ -754,8 +754,8 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     -- caused #12616 because (also bizarrely) 'deriving' code had
     -- -XImpredicativeTypes on.  I deleted the entire case.
 
-    go (FunTy { ft_af = VisArg, ft_arg = act_arg, ft_res = act_res })
-       (FunTy { ft_af = VisArg, ft_arg = exp_arg, ft_res = exp_res })
+    go (FunTy { ft_af = VisArg, ft_ma = act_m, ft_arg = act_arg, ft_res = act_res })
+       (FunTy { ft_af = VisArg, ft_ma = exp_m, ft_arg = exp_arg, ft_res = exp_res })
       = -- See Note [Co/contra-variance of subsumption checking]
         do { res_wrap <- tc_sub_type_ds eq_orig inst_orig  ctxt       act_res exp_res
            ; arg_wrap <- tc_sub_tc_type eq_orig given_orig GenSigCtxt exp_arg act_arg
@@ -1422,10 +1422,11 @@ uType t_or_k origin orig_ty1 orig_ty2
       | Just ty2' <- tcView ty2 = go ty1  ty2'
 
         -- Functions (or predicate functions) just check the two parts
-    go (FunTy _ fun1 arg1) (FunTy _ fun2 arg2)
+    go (FunTy _ m1 fun1 arg1) (FunTy _ m2 fun2 arg2)
       = do { co_l <- uType t_or_k origin fun1 fun2
            ; co_r <- uType t_or_k origin arg1 arg2
-           ; return $ mkFunCo Nominal co_l co_r }
+           ; co_m <- uType t_or_k origin m1 m2
+           ; return $ mkFunCo Nominal co_m co_l co_r }
 
         -- Always defer if a type synonym family (type function)
         -- is involved.  (Data families behave rigidly.)
@@ -1452,15 +1453,19 @@ uType t_or_k origin orig_ty1 orig_ty2
         -- Do not decompose FunTy against App;
         -- it's often a type error, so leave it for the constraint solver
     go (AppTy s1 t1) (AppTy s2 t2)
+      | isMatchableFunTy s1
+      , isMatchableFunTy s2
       = go_app (isNextArgVisible s1) s1 t1 s2 t2
 
     go (AppTy s1 t1) (TyConApp tc2 ts2)
       | Just (ts2', t2') <- snocView ts2
+      , isMatchableFunTy s1
       = ASSERT( not (mustBeSaturated tc2) )
         go_app (isNextTyConArgVisible tc2 ts2') s1 t1 (TyConApp tc2 ts2') t2'
 
     go (TyConApp tc1 ts1) (AppTy s2 t2)
       | Just (ts1', t1') <- snocView ts1
+      , isMatchableFunTy s2
       = ASSERT( not (mustBeSaturated tc1) )
         go_app (isNextTyConArgVisible tc1 ts1') (TyConApp tc1 ts1') t1' s2 t2
 
@@ -1910,6 +1915,24 @@ It would be lovely in the future to revisit this problem and remove this
 extra, unnecessary check. But we retain it for now as it seems to work
 better in practice.
 
+However, we must unify with *unsaturated* type families (when
+-XUnsaturatedTypeFamilies is on)!
+
+Consider
+
+  type family Id a where
+    Id a = a
+
+  foo :: f ~ Id => f Bool
+  foo = False
+
+We have
+
+  [G] f ~ Id
+  [W] f Bool ~ Bool
+
+to make progress, 'f' has to be unified with 'Id'.
+
 Note [Refactoring hazard: checkTauTvUpdate]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 I (Richard E.) have a sad story about refactoring this code, retained here
@@ -2027,12 +2050,14 @@ we return a made-up TcTyVarDetails, but I think it works smoothly.
 -- | Breaks apart a function kind into its pieces.
 matchExpectedFunKind
   :: Outputable fun
-  => fun             -- ^ type, only for errors
+  => Bool            -- ^ True <=> in pattern
+                     --   See Note [Checking patterns] in TcHsType
+  -> fun             -- ^ type, only for errors
   -> Arity           -- ^ n: number of desired arrows
   -> TcKind          -- ^ fun_ kind
   -> TcM Coercion    -- ^ co :: fun_kind ~ (arg1 -> ... -> argn -> res)
 
-matchExpectedFunKind hs_ty n k = go n k
+matchExpectedFunKind in_pat hs_ty n k = go n k
   where
     go 0 k = return (mkNomReflCo k)
 
@@ -2045,9 +2070,18 @@ matchExpectedFunKind hs_ty n k = go n k
                 Indirect fun_kind -> go n fun_kind
                 Flexi ->             defer n k }
 
-    go n (FunTy _ arg res)
-      = do { co <- go (n-1) res
-           ; return (mkTcFunCo Nominal (mkTcNomReflCo arg) co) }
+    go n (FunTy vis m arg res)
+      = do { mco <- if in_pat
+                    then let origin
+                              = TypeEqOrigin { uo_actual   = k
+                                             , uo_expected = mkFunTy vis matchableDataConTy arg res
+                                             , uo_thing    = Just (ppr hs_ty)
+                                             , uo_visible  = True
+                                             }
+                         in uType TypeLevel origin m matchableDataConTy
+                     else return (mkNomReflCo m)
+           ; co <- go (n-1) res
+           ; return (mkTcFunCo Nominal mco (mkNomReflCo arg) co) }
 
     go n other
      = defer n other
@@ -2055,7 +2089,10 @@ matchExpectedFunKind hs_ty n k = go n k
     defer n k
       = do { arg_kinds <- newMetaKindVars n
            ; res_kind  <- newMetaKindVar
-           ; let new_fun = mkVisFunTys arg_kinds res_kind
+           ; m_kinds <- if in_pat
+                           then return (replicate n matchableDataConTy)
+                           else newFlexiTyVarTys n matchabilityTy
+           ; let new_fun = mkVisFunTys (zip m_kinds arg_kinds) res_kind
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = new_fun
                                         , uo_thing    = Just (ppr hs_ty)
@@ -2209,13 +2246,13 @@ preCheck dflags ty_fam_ok tv ty
            -- See Note [Occurrence checking: look inside kinds]
 
     fast_check (TyConApp tc tys)
-      | bad_tc tc              = MTVU_Bad
+      | bad_tc tc tys          = MTVU_Bad
       | otherwise              = mapM fast_check tys >> ok
     fast_check (LitTy {})      = ok
-    fast_check (FunTy{ft_af = af, ft_arg = a, ft_res = r})
+    fast_check (FunTy{ft_af = af, ft_ma = m, ft_arg = a, ft_res = r})
       | InvisArg <- af
       , not impredicative_ok   = MTVU_Bad
-      | otherwise              = fast_check a   >> fast_check r
+      | otherwise              = fast_check m >> fast_check a   >> fast_check r
     fast_check (AppTy fun arg) = fast_check fun >> fast_check arg
     fast_check (CastTy ty co)  = fast_check ty  >> fast_check_co co
     fast_check (CoercionTy co) = fast_check_co co
@@ -2239,11 +2276,16 @@ preCheck dflags ty_fam_ok tv ty
     fast_check_co co | tv `elemVarSet` tyCoVarsOfCo co = MTVU_Occurs
                      | otherwise                       = ok
 
-    bad_tc :: TyCon -> Bool
-    bad_tc tc
-      | not (impredicative_ok || isTauTyCon tc)     = True
-      | not (ty_fam_ok        || isFamFreeTyCon tc) = True
-      | otherwise                                   = False
+    bad_tc :: TyCon -> [Type] -> Bool
+    bad_tc tc tys
+      | not (impredicative_ok || isTauTyCon tc)                           = True
+      | not (ty_fam_ok        || isFamFreeTyCon tc || unsaturated tc tys) = True
+      | otherwise                                                         = False
+
+    -- See Note [Prevent unification with type families]
+    unsaturated :: TyCon -> [Type] -> Bool
+    unsaturated tc tys
+      = length tys < tyConArity tc
 
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details

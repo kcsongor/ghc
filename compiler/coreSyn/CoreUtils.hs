@@ -6,7 +6,7 @@
 Utility functions on @Core@ syntax
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, ViewPatterns #-}
 
 -- | Commonly useful utilites for manipulating the Core language
 module CoreUtils (
@@ -229,7 +229,7 @@ applyTypeToArgs e op_ty args
     go op_ty []                   = op_ty
     go op_ty (Type ty : args)     = go_ty_args op_ty [ty] args
     go op_ty (Coercion co : args) = go_ty_args op_ty [mkCoercionTy co] args
-    go op_ty (_ : args)           | Just (_, res_ty) <- splitFunTy_maybe op_ty
+    go op_ty (_ : args)           | Just (_, _, res_ty) <- splitFunTy_maybe op_ty
                                   = go res_ty args
     go _ _ = pprPanic "applyTypeToArgs" panic_msg
 
@@ -1378,7 +1378,7 @@ isExpandableApp fn n_val_args
        | n_val_args == 0
        = True
 
-       | Just (bndr, ty) <- splitPiTy_maybe ty
+       | Just (_, bndr, ty) <- splitPiTy_maybe ty
        = case bndr of
            Named {}        -> all_pred_args n_val_args ty
            Anon InvisArg _ -> all_pred_args (n_val_args-1) ty
@@ -1574,7 +1574,7 @@ app_ok primop_ok fun args
              where
                n_val_args = valArgCount args
   where
-    (arg_tys, _) = splitPiTys (idType fun)
+    (map snd -> arg_tys, _) = splitPiTys (idType fun)
 
     primop_arg_ok :: TyBinder -> CoreExpr -> Bool
     primop_arg_ok (Named _) _ = True   -- A type argument
@@ -2408,11 +2408,11 @@ tryEtaReduce bndrs body
        , bndr == tv  = Just (mkHomoForAllCos [tv] co, [])
     ok_arg bndr (Var v) co
        | bndr == v   = let reflCo = mkRepReflCo (idType bndr)
-                       in Just (mkFunCo Representational reflCo co, [])
+                       in Just (mkFunCoU Representational reflCo co, [])
     ok_arg bndr (Cast e co_arg) co
        | (ticks, Var v) <- stripTicksTop tickishFloatable e
        , bndr == v
-       = Just (mkFunCo Representational (mkSymCo co_arg) co, ticks)
+       = Just (mkFunCoU Representational (mkSymCo co_arg) co, ticks)
        -- The simplifier combines multiple casts into one,
        -- so we can have a simple-minded pattern match here
     ok_arg bndr (Tick t arg) co

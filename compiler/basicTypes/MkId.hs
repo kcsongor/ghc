@@ -12,7 +12,7 @@ have a standard form, namely:
 - primitive operations
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, ViewPatterns #-}
 
 module MkId (
         mkDictFunId, mkDictFunTy, mkDictSelId, mkDictSelRhs,
@@ -1160,7 +1160,7 @@ mkPrimOpId prim_op
   = id
   where
     (tyvars,arg_tys,res_ty, arity, strict_sig) = primOpSig prim_op
-    ty   = mkSpecForAllTys tyvars (mkVisFunTys arg_tys res_ty)
+    ty   = mkSpecForAllTys tyvars (mkVisFunTysU arg_tys res_ty)
     name = mkWiredInName gHC_PRIM (primOpOcc prim_op)
                          (mkPrimOpIdUnique (primOpTag prim_op))
                          (AnId id) UserSyntax
@@ -1204,7 +1204,7 @@ mkFCallId dflags uniq fcall ty
            `setStrictnessInfo`     strict_sig
            `setLevityInfoWithType` ty
 
-    (bndrs, _) = tcSplitPiTys ty
+    (map snd->bndrs, _) = tcSplitPiTys ty
     arity      = count isAnonTyCoBinder bndrs
     strict_sig = mkClosedStrictSig (replicate arity topDmd) topRes
     -- the call does not claim to be strict in its arguments, since they
@@ -1320,7 +1320,7 @@ unsafeCoerceId
 
     [_, _, a, b] = mkTyVarTys bndrs
 
-    ty  = mkSpecForAllTys bndrs (mkVisFunTy a b)
+    ty  = mkSpecForAllTys bndrs (mkVisFunTyU a b)
 
     [x] = mkTemplateLocals [a]
     rhs = mkLams (bndrs ++ [x]) $
@@ -1354,7 +1354,7 @@ seqId = pcMiscPrelId seqName ty info
                   -- see Note [seqId magic]
 
     ty  = mkSpecForAllTys [alphaTyVar,betaTyVar]
-                          (mkVisFunTy alphaTy (mkVisFunTy betaTy betaTy))
+                          (mkVisFunTyU alphaTy (mkVisFunTyU betaTy betaTy))
 
     [x,y] = mkTemplateLocals [alphaTy, betaTy]
     rhs = mkLams [alphaTyVar,betaTyVar,x,y] (Case (Var x) x betaTy [(DEFAULT, [], Var y)])
@@ -1364,13 +1364,13 @@ lazyId :: Id    -- See Note [lazyId magic]
 lazyId = pcMiscPrelId lazyIdName ty info
   where
     info = noCafIdInfo `setNeverLevPoly` ty
-    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTy alphaTy alphaTy)
+    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTyU alphaTy alphaTy)
 
 noinlineId :: Id -- See Note [noinlineId magic]
 noinlineId = pcMiscPrelId noinlineIdName ty info
   where
     info = noCafIdInfo `setNeverLevPoly` ty
-    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTy alphaTy alphaTy)
+    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTyU alphaTy alphaTy)
 
 oneShotId :: Id -- See Note [The oneShot function]
 oneShotId = pcMiscPrelId oneShotName ty info
@@ -1379,8 +1379,8 @@ oneShotId = pcMiscPrelId oneShotName ty info
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
     ty  = mkSpecForAllTys [ runtimeRep1TyVar, runtimeRep2TyVar
                           , openAlphaTyVar, openBetaTyVar ]
-                          (mkVisFunTy fun_ty fun_ty)
-    fun_ty = mkVisFunTy openAlphaTy openBetaTy
+                          (mkVisFunTyU fun_ty fun_ty)
+    fun_ty = mkVisFunTyU openAlphaTy openBetaTy
     [body, x] = mkTemplateLocals [fun_ty, openAlphaTy]
     x' = setOneShotLambda x  -- Here is the magic bit!
     rhs = mkLams [ runtimeRep1TyVar, runtimeRep2TyVar
@@ -1411,7 +1411,7 @@ coerceId = pcMiscPrelId coerceName ty info
                                            , alphaTy, betaTy ]
     ty        = mkSpecForAllTys [alphaTyVar, betaTyVar] $
                 mkInvisFunTy eqRTy                      $
-                mkVisFunTy alphaTy betaTy
+                mkVisFunTyU alphaTy betaTy
 
     [eqR,x,eq] = mkTemplateLocals [eqRTy, alphaTy, eqRPrimTy]
     rhs = mkLams [alphaTyVar, betaTyVar, eqR, x] $

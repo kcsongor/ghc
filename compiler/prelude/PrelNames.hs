@@ -1655,6 +1655,7 @@ hasFieldClassNameKey = mkPreludeClassUnique 49
 addrPrimTyConKey, arrayPrimTyConKey, arrayArrayPrimTyConKey, boolTyConKey,
     byteArrayPrimTyConKey, charPrimTyConKey, charTyConKey, doublePrimTyConKey,
     doubleTyConKey, floatPrimTyConKey, floatTyConKey, funTyConKey,
+    funTyConUnmatchableKey, funTyConMatchableKey,
     intPrimTyConKey, intTyConKey, int8TyConKey, int16TyConKey,
     int8PrimTyConKey, int16PrimTyConKey, int32PrimTyConKey, int32TyConKey,
     int64PrimTyConKey, int64TyConKey,
@@ -1706,6 +1707,8 @@ eqTyConKey                              = mkPreludeTyConUnique 40
 heqTyConKey                             = mkPreludeTyConUnique 41
 arrayArrayPrimTyConKey                  = mkPreludeTyConUnique 42
 mutableArrayArrayPrimTyConKey           = mkPreludeTyConUnique 43
+funTyConUnmatchableKey                  = mkPreludeTyConUnique 44
+funTyConMatchableKey                    = mkPreludeTyConUnique 45
 
 statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     mutVarPrimTyConKey, ioTyConKey,
@@ -1759,13 +1762,14 @@ eitherTyConKey                          = mkPreludeTyConUnique 84
 -- Kind constructors
 liftedTypeKindTyConKey, tYPETyConKey,
   constraintKindTyConKey, runtimeRepTyConKey,
-  vecCountTyConKey, vecElemTyConKey :: Unique
+  vecCountTyConKey, vecElemTyConKey, matchabilityTyConKey :: Unique
 liftedTypeKindTyConKey                  = mkPreludeTyConUnique 87
 tYPETyConKey                            = mkPreludeTyConUnique 88
 constraintKindTyConKey                  = mkPreludeTyConUnique 92
 runtimeRepTyConKey                      = mkPreludeTyConUnique 95
 vecCountTyConKey                        = mkPreludeTyConUnique 96
 vecElemTyConKey                         = mkPreludeTyConUnique 97
+matchabilityTyConKey                    = mkPreludeTyConUnique 98
 
 pluginTyConKey, frontendPluginTyConKey :: Unique
 pluginTyConKey                          = mkPreludeTyConUnique 102
@@ -2054,6 +2058,10 @@ kindRepTypeLitDDataConKey = mkPreludeDataConUnique 109
 typeLitSymbolDataConKey, typeLitNatDataConKey :: Unique
 typeLitSymbolDataConKey   = mkPreludeDataConUnique 110
 typeLitNatDataConKey      = mkPreludeDataConUnique 111
+
+matchableDataConKey, unmatchableDataConKey :: Unique
+matchableDataConKey   = mkPreludeDataConUnique 112
+unmatchableDataConKey = mkPreludeDataConUnique 113
 
 
 ---------------- Template Haskell -------------------
@@ -2482,4 +2490,5 @@ pretendNameIsInScope :: Name -> Bool
 pretendNameIsInScope n
   = any (n `hasKey`)
     [ liftedTypeKindTyConKey, tYPETyConKey
-    , runtimeRepTyConKey, liftedRepDataConKey ]
+    , runtimeRepTyConKey, liftedRepDataConKey
+    , matchabilityTyConKey ]

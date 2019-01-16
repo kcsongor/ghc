@@ -67,7 +67,7 @@ import Module
 import BasicTypes
 
 -- compiler/types
-import Type             ( funTyCon )
+import Type             ( funTyCon, funTyConMatchable, funTyConUnmatchable )
 import Kind             ( Kind )
 import Class            ( FunDep )
 
@@ -92,7 +92,7 @@ import Util             ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )
 import GhcPrelude
 }
 
-%expect 236 -- shift/reduce conflicts
+%expect 259 -- shift/reduce conflicts
 
 {- Last updated: 04 June 2018
 
@@ -537,7 +537,9 @@ are the most common patterns, rewritten as regular expressions for clarity:
  'lcase'        { L _ ITlcase }
  '|'            { L _ ITvbar }
  '<-'           { L _ (ITlarrow _) }
+ '->>'          { L _ (ITPrarrow _) }
  '->'           { L _ (ITrarrow _) }
+ '~>'           { L _ (ITUrarrow _) }
  '@'            { L _ ITat }
  '~'            { L _ ITtilde }
  '=>'           { L _ (ITdarrow _) }
@@ -642,7 +644,11 @@ identifier :: { Located RdrName }
         | qcon                          { $1 }
         | qvarop                        { $1 }
         | qconop                        { $1 }
-    | '(' '->' ')'      {% ams (sLL $1 $> $ getRdrName funTyCon)
+    | '(' '->>' ')'     {% ams (sLL $1 $> $ getRdrName funTyCon)
+                               [mop $1,mu AnnRarrow $2,mcp $3] }
+    | '(' '->' ')'      {% ams (sLL $1 $> $ getRdrName funTyConMatchable)
+                               [mop $1,mu AnnRarrow $2,mcp $3] }
+    | '(' '~>' ')'      {% ams (sLL $1 $> $ getRdrName funTyConUnmatchable)
                                [mop $1,mu AnnRarrow $2,mcp $3] }
     | '(' '~' ')'       {% ams (sLL $1 $> $ eqTyCon_RDR)
                                [mop $1,mj AnnTilde $2,mcp $3] }
@@ -1960,8 +1966,14 @@ is connected to the first type too.
 
 type :: { LHsType GhcPs }
         : btype                        { $1 }
+        | btype '->' '{' type '}' ctype  {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
+                                      >> ams (sLL $1 $> $ HsFunTy noExt (HsExplicitMatchability $4) $1 $6)
+                                             [mu AnnRarrow $2] }
         | btype '->' ctype             {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
-                                       >> ams (sLL $1 $> $ HsFunTy noExt $1 $3)
+                                       >> ams (sLL $1 $> $ HsFunTy noExt HsMatchable $1 $3)
+                                              [mu AnnRarrow $2] }
+        | btype '~>' ctype             {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
+                                       >> ams (sLL $1 $> $ HsFunTy noExt HsUnmatchable $1 $3)
                                               [mu AnnRarrow $2] }
 
 
@@ -1970,17 +1982,32 @@ typedoc :: { LHsType GhcPs }
         | btype docprev                  { sLL $1 $> $ HsDocTy noExt $1 $2 }
         | docnext btype                  { sLL $1 $> $ HsDocTy noExt $2 $1 }
         | btype '->'     ctypedoc        {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
-                                         >> ams (sLL $1 $> $ HsFunTy noExt $1 $3)
+                                         >> ams (sLL $1 $> $ HsFunTy noExt HsMatchable $1 $3)
                                                 [mu AnnRarrow $2] }
         | btype docprev '->' ctypedoc    {% ams $1 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
                                          >> ams (sLL $1 $> $
-                                                 HsFunTy noExt (cL (comb2 $1 $2)
+                                                 HsFunTy noExt HsMatchable (cL (comb2 $1 $2)
                                                             (HsDocTy noExt $1 $2))
                                                          $4)
                                                 [mu AnnRarrow $3] }
         | docnext btype '->' ctypedoc    {% ams $2 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
                                          >> ams (sLL $1 $> $
-                                                 HsFunTy noExt (cL (comb2 $1 $2)
+                                                 HsFunTy noExt HsMatchable (cL (comb2 $1 $2)
+                                                            (HsDocTy noExt $2 $1))
+                                                         $4)
+                                                [mu AnnRarrow $3] }
+        | btype '~>'     ctypedoc        {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
+                                         >> ams (sLL $1 $> $ HsFunTy noExt HsUnmatchable $1 $3)
+                                                [mu AnnRarrow $2] }
+        | btype docprev '~>' ctypedoc    {% ams $1 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
+                                         >> ams (sLL $1 $> $
+                                                 HsFunTy noExt HsUnmatchable (cL (comb2 $1 $2)
+                                                            (HsDocTy noExt $1 $2))
+                                                         $4)
+                                                [mu AnnRarrow $3] }
+        | docnext btype '~>' ctypedoc    {% ams $2 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
+                                         >> ams (sLL $1 $> $
+                                                 HsFunTy noExt HsUnmatchable (cL (comb2 $1 $2)
                                                             (HsDocTy noExt $2 $1))
                                                          $4)
                                                 [mu AnnRarrow $3] }
@@ -3413,7 +3440,11 @@ ntgtycon :: { Located RdrName }  -- A "general" qualified tycon, excluding unit 
         | '(#' commas '#)'      {% ams (sLL $1 $> $ getRdrName (tupleTyCon Unboxed
                                                         (snd $2 + 1)))
                                        (mo $1:mc $3:(mcommas (fst $2))) }
-        | '(' '->' ')'          {% ams (sLL $1 $> $ getRdrName funTyCon)
+        | '(' '->>' ')'         {% ams (sLL $1 $> $ getRdrName funTyCon)
+                                       [mop $1,mu AnnRarrow $2,mcp $3] }
+        | '(' '->' ')'          {% ams (sLL $1 $> $ getRdrName funTyConMatchable)
+                                       [mop $1,mu AnnRarrow $2,mcp $3] }
+        | '(' '~>' ')'          {% ams (sLL $1 $> $ getRdrName funTyConUnmatchable)
                                        [mop $1,mu AnnRarrow $2,mcp $3] }
         | '[' ']'               {% ams (sLL $1 $> $ listTyCon_RDR) [mos $1,mcs $2] }
 
@@ -3496,7 +3527,9 @@ tyconsym :: { Located RdrName }
 op      :: { Located RdrName }   -- used in infix decls
         : varop                 { $1 }
         | conop                 { $1 }
-        | '->'                  { sL1 $1 $ getRdrName funTyCon }
+        | '->>'                 { sL1 $1 $ getRdrName funTyCon }
+        | '->'                  { sL1 $1 $ getRdrName funTyConMatchable }
+        | '~>'                  { sL1 $1 $ getRdrName funTyConUnmatchable }
         | '~'                   { sL1 $1 $ eqTyCon_RDR }
 
 varop   :: { Located RdrName }
@@ -3817,6 +3850,8 @@ isUnicode (dL->L _ (ITdarrow         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITdcolon         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITlarrow         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITrarrow         iu)) = iu == UnicodeSyntax
+isUnicode (dL->L _ (ITUrarrow        iu)) = iu == UnicodeSyntax
+isUnicode (dL->L _ (ITPrarrow        iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITlarrowtail     iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITrarrowtail     iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITLarrowtail     iu)) = iu == UnicodeSyntax

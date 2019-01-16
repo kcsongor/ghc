@@ -52,7 +52,7 @@ import PrelNames
 import PrelInfo
 import PrimOp   ( allThePrimOps, primOpFixity, primOpOcc )
 import MkId     ( seqId )
-import TysPrim  ( funTyConName )
+import TysPrim  ( funTyConName, funTyConUnmatchableName, funTyConMatchableName )
 import Rules
 import TyCon
 import Annotations
@@ -1049,6 +1049,8 @@ ghcPrimIface
     -- those in primops.txt.pp (from which Haddock docs are generated).
     fixities = (getOccName seqId, Fixity NoSourceText 0 InfixR)
              : (occName funTyConName, funTyFixity)  -- trac #10145
+             : (occName funTyConUnmatchableName, funTyFixity)
+             : (occName funTyConMatchableName, funTyFixity)
              : mapMaybe mkFixity allThePrimOps
     mkFixity op = (,) (primOpOcc op) <$> primOpFixity op
 

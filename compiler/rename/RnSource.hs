@@ -432,9 +432,9 @@ rnSrcInstDecl (DataFamInstD { dfid_inst = dfi })
        ; return (DataFamInstD { dfid_ext = noExt, dfid_inst = dfi' }, fvs) }
 
 rnSrcInstDecl (ClsInstD { cid_inst = cid })
-  = do { traceRn "rnSrcIstDecl {" (ppr cid)
+  = do { traceRn "rnSrcInstDecl {" (ppr cid)
        ; (cid', fvs) <- rnClsInstDecl cid
-       ; traceRn "rnSrcIstDecl end }" empty
+       ; traceRn "rnSrcInstDecl end }" empty
        ; return (ClsInstD { cid_d_ext = noExt, cid_inst = cid' }, fvs) }
 
 rnSrcInstDecl (XInstDecl _) = panic "rnSrcInstDecl"

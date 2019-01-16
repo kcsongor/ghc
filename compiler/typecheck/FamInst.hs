@@ -820,8 +820,8 @@ injTyVarsOfType (TyConApp tc tys)
   = injTyVarsOfTypes tys
 injTyVarsOfType (LitTy {})
   = emptyVarSet
-injTyVarsOfType (FunTy _ arg res)
-  = injTyVarsOfType arg `unionVarSet` injTyVarsOfType res
+injTyVarsOfType (FunTy _ m arg res)
+  = injTyVarsOfType m `unionVarSet` injTyVarsOfType arg `unionVarSet` injTyVarsOfType res
 injTyVarsOfType (AppTy fun arg)
   = injTyVarsOfType fun `unionVarSet` injTyVarsOfType arg
 -- No forall types in the RHS of a type family

@@ -1175,11 +1175,12 @@ repTy (HsAppKindTy _ ty ki) = do
                                 ty1 <- repLTy ty
                                 ki1 <- repLTy ki
                                 repTappKind ty1 ki1
-repTy (HsFunTy _ f a)       = do
-                                f1   <- repLTy f
-                                a1   <- repLTy a
-                                tcon <- repArrowTyCon
-                                repTapps tcon [f1, a1]
+repTy (HsFunTy m _ f a)       = do
+                                  m1   <- repLTy a
+                                  f1   <- repLTy f
+                                  a1   <- repLTy a
+                                  tcon <- repArrowTyCon
+                                  repTapps tcon [m1, f1, a1]
 repTy (HsListTy _ t)        = do
                                 t1   <- repLTy t
                                 tcon <- repListTyCon

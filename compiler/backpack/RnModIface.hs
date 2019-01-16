@@ -675,8 +675,8 @@ rnIfaceCo :: Rename IfaceCoercion
 rnIfaceCo (IfaceReflCo ty) = IfaceReflCo <$> rnIfaceType ty
 rnIfaceCo (IfaceGReflCo role ty mco)
   = IfaceGReflCo role <$> rnIfaceType ty <*> rnIfaceMCo mco
-rnIfaceCo (IfaceFunCo role co1 co2)
-    = IfaceFunCo role <$> rnIfaceCo co1 <*> rnIfaceCo co2
+rnIfaceCo (IfaceFunCo role mco co1 co2)
+    = IfaceFunCo role <$> rnIfaceCo mco <*> rnIfaceCo co1 <*> rnIfaceCo co2
 rnIfaceCo (IfaceTyConAppCo role tc cos)
     = IfaceTyConAppCo role <$> rnIfaceTyCon tc <*> mapM rnIfaceCo cos
 rnIfaceCo (IfaceAppCo co1 co2)
@@ -721,8 +721,8 @@ rnIfaceType (IfaceTyVar   n)   = pure (IfaceTyVar n)
 rnIfaceType (IfaceAppTy t1 t2)
     = IfaceAppTy <$> rnIfaceType t1 <*> rnIfaceAppArgs t2
 rnIfaceType (IfaceLitTy l)         = return (IfaceLitTy l)
-rnIfaceType (IfaceFunTy af t1 t2)
-    = IfaceFunTy af <$> rnIfaceType t1 <*> rnIfaceType t2
+rnIfaceType (IfaceFunTy af m t1 t2)
+    = IfaceFunTy af <$> rnIfaceMatchability m <*> rnIfaceType t1 <*> rnIfaceType t2
 rnIfaceType (IfaceTupleTy s i tks)
     = IfaceTupleTy s i <$> rnIfaceAppArgs tks
 rnIfaceType (IfaceTyConApp tc tks)
@@ -741,3 +741,9 @@ rnIfaceAppArgs :: Rename IfaceAppArgs
 rnIfaceAppArgs (IA_Arg t a ts) = IA_Arg <$> rnIfaceType t <*> pure a
                                         <*> rnIfaceAppArgs ts
 rnIfaceAppArgs IA_Nil = pure IA_Nil
+
+rnIfaceMatchability  :: Rename IfaceMatchability
+rnIfaceMatchability IMatchable   = pure IMatchable
+rnIfaceMatchability IUnmatchable = pure IUnmatchable
+rnIfaceMatchability (IExplicitMatchability m)
+  = IExplicitMatchability <$> rnIfaceType m

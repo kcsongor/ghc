@@ -119,7 +119,7 @@ mkCmdEnv tc_meths
     res_type :: Type -> Type
     res_type ty = res_ty
       where
-        (_, res_ty) = splitPiTy ty
+        (_, _, res_ty) = splitPiTy ty
 
     check_lev_poly :: Int -- arity
                    -> Maybe Id -> DsM ()

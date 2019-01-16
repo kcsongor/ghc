@@ -959,7 +959,7 @@ mkDataCon name declared_infix prom_info
         -- If the DataCon has a wrapper, then the worker's type is never seen
         -- by the user. The visibilities we pick do not matter here.
         DCR{} -> mkInvForAllTys univ_tvs $ mkTyCoInvForAllTys ex_tvs $
-                 mkVisFunTys rep_arg_tys $
+                 mkVisFunTysU rep_arg_tys $
                  mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
 
       -- See Note [Promoted data constructors] in TyCon
@@ -1297,7 +1297,7 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
     mkInvisFunTys theta $
-    mkVisFunTys arg_tys $
+    mkVisFunTysU arg_tys $
     res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a

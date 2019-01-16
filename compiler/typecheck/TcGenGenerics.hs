@@ -499,7 +499,7 @@ argTyFold argVar (ArgTyAlg {ata_rec0 = mkRec0,
              else mkRec0 t -- NB mkRec0 instead of the conventional mkPar0
 
     isApp = do -- handles applications
-      (phi, beta) <- tcSplitAppTy_maybe t
+      (phi, beta) <- tcSplitAppTy_maybe False t
 
       let interesting = argVar `elemVarSet` exactTyCoVarsOfType beta
 

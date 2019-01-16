@@ -675,6 +675,8 @@ data Token
   | ITvbar
   | ITlarrow            IsUnicodeSyntax
   | ITrarrow            IsUnicodeSyntax
+  | ITUrarrow           IsUnicodeSyntax
+  | ITPrarrow           IsUnicodeSyntax
   | ITat
   | ITtilde
   | ITdarrow            IsUnicodeSyntax
@@ -884,6 +886,8 @@ reservedSymsFM = listToUFM $
        ,("|",   ITvbar,                     NormalSyntax,  0 )
        ,("<-",  ITlarrow NormalSyntax,      NormalSyntax,  0 )
        ,("->",  ITrarrow NormalSyntax,      NormalSyntax,  0 )
+       ,("~>",  ITUrarrow NormalSyntax,     NormalSyntax,  0 )
+       ,("->>", ITPrarrow NormalSyntax,     NormalSyntax,  0 )
        ,("@",   ITat,                       NormalSyntax,  0 )
        ,("~",   ITtilde,                    NormalSyntax,  0 )
        ,("=>",  ITdarrow NormalSyntax,      NormalSyntax,  0 )

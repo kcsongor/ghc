@@ -9,7 +9,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Main (main) where
+module Main (main, mm) where
 
 -- The official GHC API
 import qualified GHC
@@ -139,6 +139,12 @@ main = do
                             PrintWithDynFlags f    -> putStrLn (f dflags)
                 Right postLoadMode ->
                     main' postLoadMode dflags argv3 flagWarnings
+
+-- | TODO (csongor): Not sure what's happening here. When I load GHC into GHCi, and
+-- then run 'main', it simply loads a different version. However, calling mm
+-- somehow seems to work around this just fine.
+mm :: IO ()
+mm = main
 
 main' :: PostLoadMode -> DynFlags -> [Located String] -> [Warn]
       -> Ghc ()

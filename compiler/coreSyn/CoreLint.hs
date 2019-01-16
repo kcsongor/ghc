@@ -406,7 +406,7 @@ lintCoreBindings dflags pass local_in_scope binds
   where
     in_scope_set = mkInScopeSet (mkVarSet local_in_scope)
 
-    flags = defaultLintFlags
+    flags = (defaultLintFlags dflags)
                { lf_check_global_ids = check_globals
                , lf_check_inline_loop_breakers = check_lbs
                , lf_check_static_ptrs = check_static_ptrs }
@@ -481,7 +481,7 @@ lintUnfolding dflags locn vars expr
   | otherwise       = Just (pprMessageBag errs)
   where
     in_scope = mkInScopeSet vars
-    (_warns, errs) = initL dflags defaultLintFlags in_scope linter
+    (_warns, errs) = initL dflags (defaultLintFlags dflags) in_scope linter
     linter = addLoc (ImportedUnfolding locn) $
              lintCoreExpr expr
 
@@ -495,7 +495,7 @@ lintExpr dflags vars expr
   | otherwise       = Just (pprMessageBag errs)
   where
     in_scope = mkInScopeSet (mkVarSet vars)
-    (_warns, errs) = initL dflags defaultLintFlags in_scope linter
+    (_warns, errs) = initL dflags (defaultLintFlags dflags) in_scope linter
     linter = addLoc TopLevelBindings $
              lintCoreExpr expr
 
@@ -1062,7 +1062,7 @@ lintTyApp fun_ty arg_ty
 -----------------
 lintValApp :: CoreExpr -> OutType -> OutType -> LintM OutType
 lintValApp arg fun_ty arg_ty
-  | Just (arg,res) <- splitFunTy_maybe fun_ty
+  | Just (_,arg,res) <- splitFunTy_maybe fun_ty
   = do { ensureEqTys arg arg_ty err1
        ; return res }
   | otherwise
@@ -1288,7 +1288,7 @@ lintTypes dflags vars tys
   | otherwise       = Just (pprMessageBag errs)
   where
     in_scope = emptyInScopeSet
-    (_warns, errs) = initL dflags defaultLintFlags in_scope linter
+    (_warns, errs) = initL dflags (defaultLintFlags dflags) in_scope linter
     linter = lintBinders LambdaBind vars $ \_ ->
              mapM_ lintInTy tys
 
@@ -1335,7 +1335,7 @@ lintType ty@(TyConApp tc tys)
        ; lintTySynFamApp report_unsat ty tc tys }
 
   | isFunTyCon tc
-  , tys `lengthIs` 4
+  , tys `lengthIs` 5
     -- We should never see a saturated application of funTyCon; such
     -- applications should be represented with the FunTy constructor.
     -- See Note [Linting function types] and
@@ -1349,9 +1349,11 @@ lintType ty@(TyConApp tc tys)
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
-lintType ty@(FunTy _ t1 t2)
+lintType ty@(FunTy _ mty t1 t2) -- TODO (csongor): lint matchability
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
+       ; mk <- lintType mty
+       ; checkMatchabilityKind mk (text "the matchability of" <+> ppr ty)
        ; lintArrow (text "type or kind" <+> quotes (ppr ty)) k1 k2 }
 
 lintType t@(ForAllTy (Bndr tv _vis) ty)
@@ -1509,7 +1511,7 @@ lint_app doc kfn kas
       | Just kfn' <- coreView kfn
       = go_app in_scope kfn' tka
 
-    go_app _ (FunTy _ kfa kfb) tka@(_,ka)
+    go_app _ (FunTy _ mty kfa kfb) tka@(_,ka)
       = do { unless (ka `eqType` kfa) $
              addErrL (fail_msg (text "Fun:" <+> (ppr kfa $$ ppr tka)))
            ; return kfb }
@@ -1630,6 +1632,25 @@ lintInCo co
     do  { co' <- applySubstCo co
         ; lintCoercion co' }
 
+lintMatchabilityCoercion :: OutCoercion -> LintM (LintedType, LintedType)
+lintMatchabilityCoercion g
+  = do { (k1, k2, t1, t2, r) <- lintCoercion g
+       ; lintKind k1
+       ; lintKind k2
+       ; checkMatchabilityKind k1 (text "the kind of the left type in" <+> ppr g)
+       ; checkMatchabilityKind k2 (text "the kind of the right type in" <+> ppr g)
+       ; lintRole g Nominal r
+       ; return (t1, t2) }
+
+-----------------
+-- Confirms that a type is really a Matchability
+checkMatchabilityKind :: OutKind -> SDoc -> LintM ()
+checkMatchabilityKind k doc
+  = lintL (isMatchabilityTy k)
+          (text "Non-matchability kind when matchability kind expected:" <+> ppr k $$
+           text "when checking" <+> doc)
+
+
 -- lints a coercion, confirming that its lh kind and its rh kind are both *
 -- also ensures that the role is Nominal
 lintStarCoercion :: OutCoercion -> LintM (LintedType, LintedType)
@@ -1670,7 +1691,7 @@ lintCoercion (GRefl r ty (MCo co))
 
 lintCoercion co@(TyConAppCo r tc cos)
   | tc `hasKey` funTyConKey
-  , [_rep1,_rep2,_co1,_co2] <- cos
+  , [_mco,_rep1,_rep2,_co1,_co2] <- cos
   = do { failWithL (text "Saturated TyConAppCo (->):" <+> ppr co)
        } -- All saturated TyConAppCos should be FunCos
 
@@ -1758,14 +1779,15 @@ lintCoercion (ForAllCo cv1 kind_co co)
        ; return (liftedTypeKind, liftedTypeKind, tyl, tyr, r) } }
                    -- See Note [Weird typing rule for ForAllTy] in Type
 
-lintCoercion co@(FunCo r co1 co2)
+lintCoercion co@(FunCo r mco co1 co2)
   = do { (k1,k'1,s1,t1,r1) <- lintCoercion co1
        ; (k2,k'2,s2,t2,r2) <- lintCoercion co2
        ; k <- lintArrow (text "coercion" <+> quotes (ppr co)) k1 k2
        ; k' <- lintArrow (text "coercion" <+> quotes (ppr co)) k'1 k'2
        ; lintRole co1 r r1
        ; lintRole co2 r r2
-       ; return (k, k', mkVisFunTy s1 s2, mkVisFunTy t1 t2, r) }
+       ; (m1, m2) <- lintMatchabilityCoercion mco
+       ; return (k, k', mkVisFunTy m1 s1 s2, mkVisFunTy m2 t1 t2, r) }
 
 lintCoercion (CoVarCo cv)
   | not (isCoVar cv)
@@ -2070,12 +2092,12 @@ data StaticPtrCheck
         -- ^ Reject any 'makeStatic' occurrence.
   deriving Eq
 
-defaultLintFlags :: LintFlags
-defaultLintFlags = LF { lf_check_global_ids = False
-                      , lf_check_inline_loop_breakers = True
-                      , lf_check_static_ptrs = AllowAnywhere
-                      , lf_report_unsat_syns = True
-                      }
+defaultLintFlags :: DynFlags -> LintFlags
+defaultLintFlags dflags = LF { lf_check_global_ids = False
+                             , lf_check_inline_loop_breakers = True
+                             , lf_check_static_ptrs = AllowAnywhere
+                             , lf_report_unsat_syns = not (xopt LangExt.UnsaturatedTypeFamilies dflags)
+                             }
 
 newtype LintM a =
    LintM { unLintM ::

@@ -407,7 +407,7 @@ matchTypeable clas [k,t]  -- clas = Typeable
   | k `eqType` typeNatKind                 = doTyLit knownNatClassName         t
   | k `eqType` typeSymbolKind              = doTyLit knownSymbolClassName      t
   | tcIsConstraintKind t                   = doTyConApp clas t constraintKindTyCon []
-  | Just (arg,ret) <- splitFunTy_maybe t   = doFunTy    clas t arg ret
+  | Just (_,arg,ret) <- splitFunTy_maybe t = doFunTy    clas t arg ret
   | Just (tc, ks) <- splitTyConApp_maybe t -- See Note [Typeable (T a b c)]
   , onlyNamedBndrsApplied tc ks            = doTyConApp clas t tc ks
   | Just (f,kt)   <- splitAppTy_maybe t    = doTyApp    clas t f kt
@@ -670,7 +670,7 @@ matchHasField dflags short_cut clas tys
                          -- the HasField x r a dictionary.  The preds will
                          -- typically be empty, but if the datatype has a
                          -- "stupid theta" then we have to include it here.
-                   ; let theta = mkPrimEqPred sel_ty (mkVisFunTy r_ty a_ty) : preds
+                   ; let theta = mkPrimEqPred sel_ty (mkVisFunTyU r_ty a_ty) : preds
 
                          -- Use the equality proof to cast the selector Id to
                          -- type (r -> a), then use the newtype coercion to cast

@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 module TcBackpack (
     findExtraSigImports',
     findExtraSigImports,
@@ -204,7 +205,7 @@ check_inst sig_inst = do
         -- Based off of tcSplitDFunTy
         (tvs, theta, pred) =
            case tcSplitForAllTys ty of { (tvs, rho)   ->
-           case splitFunTys rho     of { (theta, pred) ->
+           case splitFunTys rho     of { (unzip->(_, theta), pred) ->
            (tvs, theta, pred) }}
         origin = InstProvidedOrigin (tcg_semantic_mod tcg_env) sig_inst
     (skol_subst, tvs_skols) <- tcInstSkolTyVars tvs -- Skolemize

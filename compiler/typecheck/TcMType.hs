@@ -1229,7 +1229,7 @@ collect_cand_qtvs is_dep bound dvs ty
     -- Uses accumulating-parameter style
     go dv (AppTy t1 t2)     = foldlM go dv [t1, t2]
     go dv (TyConApp _ tys)  = foldlM go dv tys
-    go dv (FunTy _ arg res) = foldlM go dv [arg, res]
+    go dv (FunTy _ m arg res) = foldlM go dv [m, arg, res]
     go dv (LitTy {})        = return dv
     go dv (CastTy ty co)    = do dv1 <- go dv ty
                                  collect_cand_qtvs_co bound dv1 co
@@ -1280,7 +1280,7 @@ collect_cand_qtvs_co bound = go_co
                                         go_mco dv1 mco
     go_co dv (TyConAppCo _ _ cos)  = foldlM go_co dv cos
     go_co dv (AppCo co1 co2)       = foldlM go_co dv [co1, co2]
-    go_co dv (FunCo _ co1 co2)     = foldlM go_co dv [co1, co2]
+    go_co dv (FunCo _ mco co1 co2) = foldlM go_co dv [mco, co1, co2]
     go_co dv (AxiomInstCo _ _ cos) = foldlM go_co dv cos
     go_co dv (AxiomRuleCo _ cos)   = foldlM go_co dv cos
     go_co dv (UnivCo prov _ t1 t2) = do dv1 <- go_prov dv prov
@@ -1391,14 +1391,16 @@ Note [Deterministic UniqFM] in UniqDFM.
 -}
 
 quantifyTyVars
-  :: TcTyCoVarSet     -- Global tvs; already zonked
+  :: Bool             -- Default matchability? TODO (csongor): this should not be a Bool probably
+  -> TcTyCoVarSet     -- Global tvs; already zonked
   -> CandidatesQTvs   -- See Note [Dependent type variables]
                       -- Already zonked
   -> TcM [TcTyVar]
 -- See Note [quantifyTyVars]
 -- Can be given a mixture of TcTyVars and TyVars, in the case of
 --   associated type declarations. Also accepts covars, but *never* returns any.
-quantifyTyVars gbl_tvs
+quantifyTyVars default_matchability
+               gbl_tvs
                dvs@(DV{ dv_kvs = dep_tkvs, dv_tvs = nondep_tkvs, dv_cvs = covars })
   = do { outer_tclvl <- getTcLevel
        ; traceTc "quantifyTyVars 1" (vcat [ppr outer_tclvl, ppr dvs, ppr gbl_tvs])
@@ -1486,7 +1488,7 @@ quantifyTyVars gbl_tvs
         return (Just tkv)
 
       | otherwise
-      = do { deflt_done <- defaultTyVar default_kind tkv
+      = do { deflt_done <- defaultTyVar default_matchability default_kind tkv
            ; case deflt_done of
                True  -> return Nothing
                False -> do { tv <- skolemiseQuantifiedTyVar tkv
@@ -1542,11 +1544,13 @@ skolemiseQuantifiedTyVar tv
 
       _other -> pprPanic "skolemiseQuantifiedTyVar" (ppr tv) -- RuntimeUnk
 
-defaultTyVar :: Bool      -- True <=> please default this kind variable to *
+defaultTyVar :: Bool      -- True <=> please default matchability to Matchable
+                          -- See Note [Matchability defaulting]
+             -> Bool      -- True <=> please default this kind variable to *
              -> TcTyVar   -- If it's a MetaTyVar then it is unbound
              -> TcM Bool  -- True <=> defaulted away altogether
 
-defaultTyVar default_kind tv
+defaultTyVar default_matchability default_kind tv
   | not (isMetaTyVar tv)
   = return False
 
@@ -1562,6 +1566,12 @@ defaultTyVar default_kind tv
                         -- unless it is a TyVarTv, handled earlier
   = do { traceTc "Defaulting a RuntimeRep var to LiftedRep" (ppr tv)
        ; writeMetaTyVar tv liftedRepTy
+       ; return True }
+
+  | default_matchability && isMatchabilityVar tv  -- Do not quantify over a Matchability var
+                                                  -- unless it is a TyVarTv, handled earlier
+  = do { traceTc "Defaulting a Matchability var to Matchable" (ppr tv)
+       ; writeMetaTyVar tv matchableDataConTy
        ; return True }
 
   | default_kind            -- -XNoPolyKinds and this is a kind var
@@ -1649,6 +1659,41 @@ is ill-kinded.
 
 After some debate on #11334, we decided to issue an error in this case.
 The code is in defaultKindVar.
+
+Note [Matchability defaulting]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We make the following rule: all unconstrained Matchability metavariables
+are defaulted to Matchable.
+
+Consider
+
+  wurble :: f a ~ g b => a -> b
+  wurble = id
+
+this typechecks, but for it to do so, 'f' and 'g' must be matchable so
+that the given equality can be decomposed. Of course we mustn't look at
+the body of wurble to know that we will need the decomposition, so we just
+default 'f' and 'g' regardless.
+
+There is one wrinkle: matchabilities *must* be quantified over in the patterns
+of matchability-polymorphic type families.
+
+For example,
+
+  type family Map (f :: a ->{m} b) (as :: [a]) :: [b] where
+    Map f '[] = '[]
+    Map f (x ': xs) = f x ': Map f xs
+
+If we go ahead and default the matchability of the argument 'f', then the
+resulting axioms will look like
+
+  axMap1 :: forall (a :: *) (b :: *) (f :: a -> b). Map f '[] ~ '[]
+
+notice the matchable kind of 'f'. This means the equations won't match
+type families!
+
+The solution is to quantify over matchability variables when checking type
+family patterns.
 
 Note [What is a meta variable?]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2174,8 +2219,8 @@ tidySigSkol env cx ty tv_prs
       where
         (env', tv') = tidy_tv_bndr env tv
 
-    tidy_ty env ty@(FunTy _ arg res)
-      = ty { ft_arg = tidyType env arg, ft_res = tidy_ty env res }
+    tidy_ty env ty@(FunTy _ m arg res)
+      = ty { ft_ma = tidyType env m, ft_arg = tidyType env arg, ft_res = tidy_ty env res }
 
     tidy_ty env ty = tidyType env ty
 

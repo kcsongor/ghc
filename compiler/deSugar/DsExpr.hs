@@ -368,7 +368,7 @@ ds_expr _ (SectionL _ expr op)       -- Desugar (e !) to ((!) e)
 ds_expr _ e@(SectionR _ op expr) = do
     core_op <- dsLExpr op
     -- for the type of x, we need the type of op's 2nd argument
-    let (x_ty:y_ty:_, _) = splitFunTys (exprType core_op)
+    let ((_,x_ty):(_,y_ty):_, _) = splitFunTys (exprType core_op)
         -- See comment with SectionL
     y_core <- dsLExpr expr
     dsWhenNoErrs (mapM newSysLocalDsNoLP [x_ty, y_ty])
@@ -531,7 +531,7 @@ ds_expr _ (RecordCon { rcon_flds = rbinds
                                               , rcon_con_like = con_like }})
   = do { con_expr' <- dsExpr con_expr
        ; let
-             (arg_tys, _) = tcSplitFunTys (exprType con_expr')
+             (unzip->(_, arg_tys), _) = tcSplitFunTys (exprType con_expr')
              -- A newtype in the corner should be opaque;
              -- hence TcType.tcSplitFunTys
 
@@ -1050,7 +1050,7 @@ dsConLike _ (PatSynCon ps)   = return $ case patSynBuilder ps of
 -- Warn about certain types of values discarded in monadic bindings (#3263)
 warnDiscardedDoBindings :: LHsExpr GhcTc -> Type -> DsM ()
 warnDiscardedDoBindings rhs rhs_ty
-  | Just (m_ty, elt_ty) <- tcSplitAppTy_maybe rhs_ty
+  | Just (m_ty, elt_ty) <- tcSplitAppTy_maybe False rhs_ty
   = do { warn_unused <- woptM Opt_WarnUnusedDoBind
        ; warn_wrong <- woptM Opt_WarnWrongDoBind
        ; when (warn_unused || warn_wrong) $
@@ -1066,7 +1066,7 @@ warnDiscardedDoBindings rhs rhs_ty
            -- Warn about discarding m a things in 'monadic' binding of the same type,
            -- but only if we didn't already warn due to Opt_WarnUnusedDoBind
            when warn_wrong $
-                do { case tcSplitAppTy_maybe norm_elt_ty of
+                do { case tcSplitAppTy_maybe False norm_elt_ty of
                          Just (elt_m_ty, _)
                             | m_ty `eqType` topNormaliseType fam_inst_envs elt_m_ty
                             -> warnDs (Reason Opt_WarnWrongDoBind)
@@ -1161,8 +1161,8 @@ badUseOfLevPolyPrimop id ty
   | otherwise
   = []
   where
-    (binders, _) = splitPiTys ty
-    arg_tys      = mapMaybe binderRelevantType_maybe binders
+    (unzip->(_,binders), _) = splitPiTys ty
+    arg_tys                 = mapMaybe binderRelevantType_maybe binders
 
 levPolyPrimopErr :: Id -> Type -> [Type] -> DsM ()
 levPolyPrimopErr primop ty bad_tys

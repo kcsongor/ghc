@@ -434,7 +434,7 @@ typeIsTypeable ty
   | isJust (kindRep_maybe ty)       = True
 typeIsTypeable (TyVarTy _)          = True
 typeIsTypeable (AppTy a b)          = typeIsTypeable a && typeIsTypeable b
-typeIsTypeable (FunTy _ a b)        = typeIsTypeable a && typeIsTypeable b
+typeIsTypeable (FunTy _ m a b)        = typeIsTypeable m && typeIsTypeable a && typeIsTypeable b
 typeIsTypeable (TyConApp tc args)   = tyConIsTypeable tc
                                    && all typeIsTypeable args
 typeIsTypeable (ForAllTy{})         = False
@@ -462,8 +462,8 @@ liftTc = KindRepM . lift
 builtInKindReps :: [(Kind, Name)]
 builtInKindReps =
     [ (star, starKindRepName)
-    , (mkVisFunTy star star, starArrStarKindRepName)
-    , (mkVisFunTys [star, star] star, starArrStarArrStarKindRepName)
+    , (mkVisFunTyM star star, starArrStarKindRepName)
+    , (mkVisFunTysM [star, star] star, starArrStarArrStarKindRepName)
     ]
   where
     star = liftedTypeKind
@@ -587,11 +587,12 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
     new_kind_rep (ForAllTy (Bndr var _) ty)
       = pprPanic "mkTyConKindRepBinds(ForAllTy)" (ppr var $$ ppr ty)
 
-    new_kind_rep (FunTy _ t1 t2)
-      = do rep1 <- getKindRep stuff in_scope t1
+    new_kind_rep (FunTy _ m t1 t2)
+      = do repm <- getKindRep stuff in_scope t1
+           rep1 <- getKindRep stuff in_scope t1
            rep2 <- getKindRep stuff in_scope t2
            return $ nlHsDataCon kindRepFunDataCon
-                    `nlHsApp` rep1 `nlHsApp` rep2
+                    `nlHsApp` repm `nlHsApp` rep1 `nlHsApp` rep2
 
     new_kind_rep (LitTy (NumTyLit n))
       = return $ nlHsDataCon kindRepTypeLitSDataCon
@@ -671,7 +672,8 @@ The TypeRep encoding of `Proxy Type Int` looks like this:
     $trProxy = TrApp $trProxyType $trInt TrType
 
     $tkProxy :: GHC.Types.KindRep
-    $tkProxy = KindRepFun (KindRepVar 0)
+    $tkProxy = KindRepFun (KindRepTyConApp Matchable []) -- TODO (csongor): not quite right, the Matchable tycon
+                          (KindRepVar 0)
                           (KindRepTyConApp (KindRepTYPE LiftedRep) [])
 
 Note how $trProxyType cannot use 'TrApp', because TypeRep cannot represent
@@ -699,7 +701,7 @@ polymorphic types.  So instead
     data KindRep = KindRepTyConApp TyCon [KindRep]
                  | KindRepVar !KindBndr
                  | KindRepApp KindRep KindRep
-                 | KindRepFun KindRep KindRep
+                 | KindRepFun KindRep KindRep KindRep
                  ...
 -}
 

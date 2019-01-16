@@ -623,7 +623,7 @@ schemeE d s p exp@(AnnTick (Breakpoint _id _fvs) _rhs)
           -- Here (k n) :: a :: Type r, so we don't know if it's lifted
           -- or not; but that should be fine provided we add that void arg.
 
-          id <- newId (mkVisFunTy realWorldStatePrimTy ty)
+          id <- newId (mkVisFunTyU realWorldStatePrimTy ty)
           st <- newId realWorldStatePrimTy
           let letExp = AnnLet (AnnNonRec id (fvs, AnnLam st (emptyDVarSet, exp)))
                               (emptyDVarSet, (AnnApp (emptyDVarSet, AnnVar id)

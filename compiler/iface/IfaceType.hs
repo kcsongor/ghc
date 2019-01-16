@@ -14,7 +14,7 @@ This module defines interface types and binders
 module IfaceType (
         IfExtName, IfLclName,
 
-        IfaceType(..), IfacePredType, IfaceKind, IfaceCoercion(..),
+        IfaceType(..), IfaceMatchability(..), IfacePredType, IfaceKind, IfaceCoercion(..),
         IfaceMCoercion(..),
         IfaceUnivCoProv(..),
         IfaceTyCon(..), IfaceTyConInfo(..), IfaceTyConSort(..),
@@ -57,8 +57,8 @@ module IfaceType (
 import GhcPrelude
 
 import {-# SOURCE #-} TysWiredIn ( coercibleTyCon, heqTyCon
-                                 , liftedRepDataConTyCon )
-import {-# SOURCE #-} TyCoRep    ( isRuntimeRepTy )
+                                 , liftedRepDataConTyCon, matchableDataConTyCon )
+import {-# SOURCE #-} TyCoRep    ( isRuntimeRepTy, isMatchabilityTy, isMatchableTy, isUnmatchableTy )
 
 import DynFlags
 import TyCon hiding ( pprPromotionQuote )
@@ -136,7 +136,7 @@ data IfaceType
                              -- See Note [Suppressing invisible arguments] for
                              -- an explanation of why the second field isn't
                              -- IfaceType, analogous to AppTy.
-  | IfaceFunTy     AnonArgFlag IfaceType IfaceType
+  | IfaceFunTy     AnonArgFlag IfaceMatchability IfaceType IfaceType
   | IfaceForAllTy  IfaceForAllBndr IfaceType
   | IfaceTyConApp  IfaceTyCon IfaceAppArgs  -- Not necessarily saturated
                                             -- Includes newtypes, synonyms, tuples
@@ -151,6 +151,11 @@ data IfaceType
 
 type IfacePredType = IfaceType
 type IfaceContext = [IfacePredType]
+
+data IfaceMatchability
+  = IMatchable
+  | IUnmatchable
+  | IExplicitMatchability IfaceType
 
 data IfaceTyLit
   = IfaceNumTyLit Integer
@@ -309,7 +314,7 @@ data IfaceMCoercion
 data IfaceCoercion
   = IfaceReflCo       IfaceType
   | IfaceGReflCo      Role IfaceType (IfaceMCoercion)
-  | IfaceFunCo        Role IfaceCoercion IfaceCoercion
+  | IfaceFunCo        Role IfaceCoercion IfaceCoercion IfaceCoercion
   | IfaceTyConAppCo   Role IfaceTyCon [IfaceCoercion]
   | IfaceAppCo        IfaceCoercion IfaceCoercion
   | IfaceForAllCo     IfaceBndr IfaceCoercion IfaceCoercion
@@ -394,7 +399,7 @@ splitIfaceSigmaTy ty
         = case split_foralls ty of { (bndrs, rho) -> (bndr:bndrs, rho) }
     split_foralls rho = ([], rho)
 
-    split_rho (IfaceFunTy InvisArg ty1 ty2)
+    split_rho (IfaceFunTy InvisArg _ ty1 ty2)
         = case split_rho ty2 of { (ps, tau) -> (ty1:ps, tau) }
     split_rho tau = ([], tau)
 
@@ -438,7 +443,7 @@ ifTypeIsVarFree ty = go ty
     go (IfaceTyVar {})         = False
     go (IfaceFreeTyVar {})     = False
     go (IfaceAppTy fun args)   = go fun && go_args args
-    go (IfaceFunTy _ arg res)  = go arg && go res
+    go (IfaceFunTy _ m arg res)= go_matchability m && go arg && go res
     go (IfaceForAllTy {})      = False
     go (IfaceTyConApp _ args)  = go_args args
     go (IfaceTupleTy _ _ args) = go_args args
@@ -448,6 +453,10 @@ ifTypeIsVarFree ty = go ty
 
     go_args IA_Nil = True
     go_args (IA_Arg arg _ args) = go arg && go_args args
+
+    go_matchability IMatchable = True
+    go_matchability IUnmatchable = True
+    go_matchability (IExplicitMatchability m) = go m
 
 {- Note [Substitution on IfaceType]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -473,7 +482,7 @@ substIfaceType env ty
     go (IfaceFreeTyVar tv)    = IfaceFreeTyVar tv
     go (IfaceTyVar tv)        = substIfaceTyVar env tv
     go (IfaceAppTy  t ts)     = IfaceAppTy  (go t) (substIfaceAppArgs env ts)
-    go (IfaceFunTy af t1 t2)  = IfaceFunTy af (go t1) (go t2)
+    go (IfaceFunTy af m t1 t2)= IfaceFunTy af (substIfaceMatchability env m) (go t1) (go t2)
     go ty@(IfaceLitTy {})     = ty
     go (IfaceTyConApp tc tys) = IfaceTyConApp tc (substIfaceAppArgs env tys)
     go (IfaceTupleTy s i tys) = IfaceTupleTy s i (substIfaceAppArgs env tys)
@@ -486,7 +495,7 @@ substIfaceType env ty
 
     go_co (IfaceReflCo ty)           = IfaceReflCo (go ty)
     go_co (IfaceGReflCo r ty mco)    = IfaceGReflCo r (go ty) (go_mco mco)
-    go_co (IfaceFunCo r c1 c2)       = IfaceFunCo r (go_co c1) (go_co c2)
+    go_co (IfaceFunCo r mco c1 c2)   = IfaceFunCo r (go_co mco) (go_co c1) (go_co c2)
     go_co (IfaceTyConAppCo r tc cos) = IfaceTyConAppCo r tc (go_cos cos)
     go_co (IfaceAppCo c1 c2)         = IfaceAppCo (go_co c1) (go_co c2)
     go_co (IfaceForAllCo {})         = pprPanic "substIfaceCoercion" (ppr ty)
@@ -517,6 +526,11 @@ substIfaceAppArgs env args
   where
     go IA_Nil              = IA_Nil
     go (IA_Arg ty arg tys) = IA_Arg (substIfaceType env ty) arg (go tys)
+
+substIfaceMatchability :: IfaceTySubst -> IfaceMatchability -> IfaceMatchability
+substIfaceMatchability _ IMatchable = IMatchable
+substIfaceMatchability _ IUnmatchable = IUnmatchable
+substIfaceMatchability env (IExplicitMatchability m) = IExplicitMatchability (substIfaceType env m)
 
 substIfaceTyVar :: IfaceTySubst -> IfLclName -> IfaceType
 substIfaceTyVar env tv
@@ -772,9 +786,15 @@ ppr_sigma :: PprPrec -> IfaceType -> SDoc
 ppr_sigma ctxt_prec ty
   = maybeParen ctxt_prec funPrec (pprIfaceSigmaType ShowForAllMust ty)
 
+ppr_matchability :: PprPrec -> IfaceMatchability -> SDoc
+ppr_matchability _ IMatchable      = text "Matchable"
+ppr_matchability _ IUnmatchable    = text "Unmatchable"
+ppr_matchability ctxt_prec (IExplicitMatchability m)
+  = ppr_ty ctxt_prec m
+
 ppr_ty :: PprPrec -> IfaceType -> SDoc
-ppr_ty ctxt_prec ty@(IfaceForAllTy {})        = ppr_sigma ctxt_prec ty
-ppr_ty ctxt_prec ty@(IfaceFunTy InvisArg _ _) = ppr_sigma ctxt_prec ty
+ppr_ty ctxt_prec ty@(IfaceForAllTy {})          = ppr_sigma ctxt_prec ty
+ppr_ty ctxt_prec ty@(IfaceFunTy InvisArg _ _ _) = ppr_sigma ctxt_prec ty
 
 ppr_ty _         (IfaceFreeTyVar tyvar) = ppr tyvar  -- This is the main reason for IfaceFreeTyVar!
 ppr_ty _         (IfaceTyVar tyvar)     = ppr tyvar  -- See Note [TcTyVars in IfaceType]
@@ -782,15 +802,18 @@ ppr_ty ctxt_prec (IfaceTyConApp tc tys) = pprTyTcApp ctxt_prec tc tys
 ppr_ty ctxt_prec (IfaceTupleTy i p tys) = pprTuple ctxt_prec i p tys
 ppr_ty _         (IfaceLitTy n)         = pprIfaceTyLit n
         -- Function types
-ppr_ty ctxt_prec (IfaceFunTy _ ty1 ty2)  -- Should be VisArg
+ppr_ty ctxt_prec (IfaceFunTy _ m ty1 ty2)  -- Should be VisArg
   = -- We don't want to lose synonyms, so we mustn't use splitFunTys here.
     maybeParen ctxt_prec funPrec $
-    sep [ppr_ty funPrec ty1, sep (ppr_fun_tail ty2)]
+    sep [ppr_ty funPrec ty1, sep (ppr_fun_tail m ty2)]
   where
-    ppr_fun_tail (IfaceFunTy VisArg ty1 ty2)
-      = (arrow <+> ppr_ty funPrec ty1) : ppr_fun_tail ty2
-    ppr_fun_tail other_ty
-      = [arrow <+> pprIfaceType other_ty]
+    ppr_fun_tail m (IfaceFunTy VisArg m' ty1 ty2)
+      = (arr m <+> ppr_ty funPrec ty1) : ppr_fun_tail m' ty2
+    ppr_fun_tail m other_ty
+      = [arr m <+> pprIfaceType other_ty]
+    arr IMatchable = arrow
+    arr IUnmatchable = uarrow
+    arr m@(IExplicitMatchability{}) = arrow <> text "{" <> ppr_matchability ctxt_prec m <> text "}"
 
 ppr_ty ctxt_prec (IfaceAppTy t ts)
   = if_print_coercions
@@ -920,8 +943,8 @@ defaultRuntimeRepVars ty = go False emptyFsEnv ty
     go ink subs (IfaceTupleTy sort is_prom tc_args)
       = IfaceTupleTy sort is_prom (go_args ink subs tc_args)
 
-    go ink subs (IfaceFunTy af arg res)
-      = IfaceFunTy af (go ink subs arg) (go ink subs res)
+    go ink subs (IfaceFunTy af m arg res)
+      = IfaceFunTy af (go_matchability ink subs m) (go ink subs arg) (go ink subs res)
 
     go ink subs (IfaceAppTy t ts)
       = IfaceAppTy (go ink subs t) (go_args ink subs ts)
@@ -943,9 +966,17 @@ defaultRuntimeRepVars ty = go False emptyFsEnv ty
     go_args ink subs (IA_Arg ty argf args)
       = IA_Arg (go ink subs ty) argf (go_args ink subs args)
 
+    go_matchability _ _ IMatchable = IMatchable
+    go_matchability _ _ IUnmatchable = IUnmatchable
+    go_matchability ink subs (IExplicitMatchability m) = IExplicitMatchability (go ink subs m)
+
     liftedRep :: IfaceTyCon
     liftedRep = IfaceTyCon dc_name (IfaceTyConInfo IsPromoted IfaceNormalTyCon)
       where dc_name = getName liftedRepDataConTyCon
+
+    matchable :: IfaceTyCon
+    matchable = IfaceTyCon dc_name (IfaceTyConInfo IsPromoted IfaceNormalTyCon)
+      where dc_name = getName matchableDataConTyCon
 
     isRuntimeRep :: IfaceType -> Bool
     isRuntimeRep (IfaceTyConApp tc _) =
@@ -1445,14 +1476,15 @@ ppr_co _         (IfaceGReflCo r ty IfaceMRefl)
 ppr_co ctxt_prec (IfaceGReflCo r ty (IfaceMCo co))
   = ppr_special_co ctxt_prec
     (text "GRefl" <+> ppr r <+> pprParendIfaceType ty) [co]
-ppr_co ctxt_prec (IfaceFunCo r co1 co2)
+ppr_co ctxt_prec (IfaceFunCo r mco co1 co2)
   = maybeParen ctxt_prec funPrec $
-    sep (ppr_co funPrec co1 : ppr_fun_tail co2)
+    sep (ppr_co funPrec co1 : ppr_fun_tail mco co2)
   where
-    ppr_fun_tail (IfaceFunCo r co1 co2)
-      = (arrow <> ppr_role r <+> ppr_co funPrec co1) : ppr_fun_tail co2
-    ppr_fun_tail other_co
-      = [arrow <> ppr_role r <+> pprIfaceCoercion other_co]
+    ppr_fun_tail mco (IfaceFunCo r mco' co1 co2)
+      = (arr mco <> ppr_role r <+> ppr_co funPrec co1) : ppr_fun_tail mco' co2
+    ppr_fun_tail mco other_co
+      = [arr mco <> ppr_role r <+> pprIfaceCoercion other_co]
+    arr m = arrow <> text "{" <> ppr_co ctxt_prec m <> text "}"
 
 ppr_co _         (IfaceTyConAppCo r tc cos)
   = parens (pprIfaceCoTcApp topPrec tc cos) <> ppr_role r
@@ -1674,9 +1706,10 @@ instance Binary IfaceType where
             putByte bh 2
             put_ bh ae
             put_ bh af
-    put_ bh (IfaceFunTy af ag ah) = do
+    put_ bh (IfaceFunTy af m ag ah) = do
             putByte bh 3
             put_ bh af
+            put_ bh m
             put_ bh ag
             put_ bh ah
     put_ bh (IfaceTyConApp tc tys)
@@ -1702,9 +1735,10 @@ instance Binary IfaceType where
                       af <- get bh
                       return (IfaceAppTy ae af)
               3 -> do af <- get bh
+                      m  <- get bh
                       ag <- get bh
                       ah <- get bh
-                      return (IfaceFunTy af ag ah)
+                      return (IfaceFunTy af m ag ah)
               5 -> do { tc <- get bh; tys <- get bh
                       ; return (IfaceTyConApp tc tys) }
               6 -> do { a <- get bh; b <- get bh
@@ -1716,6 +1750,24 @@ instance Binary IfaceType where
                       ; return (IfaceTupleTy s i tys) }
               _  -> do n <- get bh
                        return (IfaceLitTy n)
+
+instance Binary IfaceMatchability where
+  put_ bh IMatchable = do
+          putByte bh 1
+  put_ bh IUnmatchable = do
+          putByte bh 2
+  put_ bh (IExplicitMatchability m) = do
+          putByte bh 3
+          put_ bh m
+
+  get bh = do
+    tag <- getByte bh
+    case tag of
+         1 -> return IMatchable
+         2 -> return IUnmatchable
+         3 -> do a <- get bh
+                 return $ IExplicitMatchability a
+         _ -> panic ("get IfaceMatchability " ++ show tag)
 
 instance Binary IfaceMCoercion where
   put_ bh IfaceMRefl = do
@@ -1741,11 +1793,12 @@ instance Binary IfaceCoercion where
           put_ bh a
           put_ bh b
           put_ bh c
-  put_ bh (IfaceFunCo a b c) = do
+  put_ bh (IfaceFunCo a b c d) = do
           putByte bh 3
           put_ bh a
           put_ bh b
           put_ bh c
+          put_ bh d
   put_ bh (IfaceTyConAppCo a b c) = do
           putByte bh 4
           put_ bh a
@@ -1821,7 +1874,8 @@ instance Binary IfaceCoercion where
            3 -> do a <- get bh
                    b <- get bh
                    c <- get bh
-                   return $ IfaceFunCo a b c
+                   d <- get bh
+                   return $ IfaceFunCo a b c d
            4 -> do a <- get bh
                    b <- get bh
                    c <- get bh

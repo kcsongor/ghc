@@ -718,7 +718,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
 
        ; gbl_tvs <- tcGetGlobalTyCoVars
        ; dep_vars <- candidateQTyVarsOfTypes (psig_tv_tys ++ psig_theta ++ map snd name_taus)
-       ; qtkvs <- quantifyTyVars gbl_tvs dep_vars
+       ; qtkvs <- quantifyTyVars True gbl_tvs dep_vars
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], emptyTcEvBinds, emptyWC, False) }
 
@@ -1151,7 +1151,7 @@ defaultTyVarsAndSimplify rhs_tclvl mono_tvs candidates
       | tv `elemVarSet` mono_tvs
       = return False
       | otherwise
-      = defaultTyVar (not poly_kinds && is_kind_var) tv
+      = defaultTyVar False (not poly_kinds && is_kind_var) tv
 
     simplify_cand candidates
       = do { clone_wanteds <- newWanteds DefaultOrigin candidates
@@ -1210,7 +1210,7 @@ decideQuantifiedTyVars mono_tvs name_taus psigs candidates
            , text "grown_tcvs =" <+> ppr grown_tcvs
            , text "dvs =" <+> ppr dvs_plus])
 
-       ; quantifyTyVars mono_tvs dvs_plus }
+       ; quantifyTyVars True mono_tvs dvs_plus }
 
 ------------------
 growThetaTyVars :: ThetaType -> TyCoVarSet -> TyCoVarSet
@@ -2055,6 +2055,15 @@ defaultTyVarTcS the_tv
     -- and Note [Inferring kinds for type declarations] in TcTyClsDecls
   = do { traceTcS "defaultTyVarTcS RuntimeRep" (ppr the_tv)
        ; unifyTyVar the_tv liftedRepTy
+       ; return True }
+  | isMatchabilityVar the_tv
+  , not (isTyVarTyVar the_tv)
+    -- TODO (csongor): revise comment here?
+    -- TyVarTvs should only be unified with a tyvar
+    -- never with a type; c.f. TcMType.defaultTyVar
+    -- and Note [Inferring kinds for type declarations] in TcTyClsDecls
+  = do { traceTcS "defaultTyVarTcS Matchability" (ppr the_tv)
+       ; unifyTyVar the_tv matchableDataConTy
        ; return True }
   | otherwise
   = return False  -- the common case

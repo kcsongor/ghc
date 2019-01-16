@@ -570,7 +570,7 @@ generaliseTcTyCon tc
 
        -- Step 2b: quantify, mainly meaning skolemise the free variables
        -- Returned 'inferred' are scope-sorted and skolemised
-       ; inferred <- quantifyTyVars emptyVarSet dvs2
+       ; inferred <- quantifyTyVars True emptyVarSet dvs2
 
        -- Step 3a: rename all the Specified and Required tyvars back to
        -- TyVars with their oroginal user-specified name.  Example
@@ -2005,7 +2005,7 @@ tcTyFamInstEqnGuts fam_tc mb_clsinfo imp_vars exp_bndrs hs_pats hs_rhs_ty
        -- check there too!
        ; let scoped_tvs = imp_tvs ++ exp_tvs
        ; dvs  <- candidateQTyVarsOfTypes (lhs_ty : mkTyVarTys scoped_tvs)
-       ; qtvs <- quantifyTyVars emptyVarSet dvs
+       ; qtvs <- quantifyTyVars False emptyVarSet dvs
 
        ; (ze, qtvs) <- zonkTyBndrs qtvs
        ; lhs_ty     <- zonkTcTypeToTypeX ze lhs_ty
@@ -2033,7 +2033,7 @@ tcFamTyPats fam_tc hs_pats
                                 setXOptM LangExt.PartialTypeSignatures $
                                 -- See Note [Wildcards in family instances] in
                                 -- RnSource.hs
-                                tcInferApps typeLevelMode lhs_fun fun_ty hs_pats
+                                tcInferApps patternMode lhs_fun fun_ty hs_pats
 
        ; traceTc "End tcFamTyPats }" $
          vcat [ ppr fam_tc, text "res_kind:" <+> ppr res_kind ]
@@ -2271,7 +2271,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
        ; kvs <- kindGeneralize (mkSpecForAllTys (binderVars tmpl_bndrs) $
                                 mkSpecForAllTys exp_tvs $
                                 mkPhiTy ctxt $
-                                mkVisFunTys arg_tys $
+                                mkVisFunTysU arg_tys $
                                 unitTy)
                  -- That type is a lie, of course. (It shouldn't end in ()!)
                  -- And we could construct a proper result type from the info
@@ -2346,7 +2346,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
 
        ; tkvs <- kindGeneralize (mkSpecForAllTys user_tvs $
                                  mkPhiTy ctxt $
-                                 mkVisFunTys arg_tys $
+                                 mkVisFunTysU arg_tys $
                                  res_ty)
 
              -- Zonk to Types
@@ -3667,8 +3667,9 @@ checkValidRoles tc
       =  check_ty_roles env role    ty1
       >> check_ty_roles env Nominal ty2
 
-    check_ty_roles env role (FunTy _ ty1 ty2)
-      =  check_ty_roles env role ty1
+    check_ty_roles env role (FunTy _ m ty1 ty2)
+      =  check_ty_roles env Nominal m
+      >> check_ty_roles env role ty1
       >> check_ty_roles env role ty2
 
     check_ty_roles env role (ForAllTy (Bndr tv _) ty)

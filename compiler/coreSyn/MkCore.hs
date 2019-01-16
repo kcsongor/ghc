@@ -128,12 +128,12 @@ mkCoreAppTyped _ (fun, fun_ty) (Type ty)
 mkCoreAppTyped _ (fun, fun_ty) (Coercion co)
   = (App fun (Coercion co), res_ty)
   where
-    (_, res_ty) = splitFunTy fun_ty
+    (_, _, res_ty) = splitFunTy fun_ty
 mkCoreAppTyped d (fun, fun_ty) arg
   = ASSERT2( isFunTy fun_ty, ppr fun $$ ppr arg $$ d )
     (mk_val_app fun arg arg_ty res_ty, res_ty)
   where
-    (arg_ty, res_ty) = splitFunTy fun_ty
+    (_, arg_ty, res_ty) = splitFunTy fun_ty
 
 -- | Construct an expression which represents the application of one expression
 -- to the other
@@ -622,7 +622,7 @@ mkBuildExpr :: (MonadFail.MonadFail m, MonadThings m, MonadUnique m)
 mkBuildExpr elt_ty mk_build_inside = do
     [n_tyvar] <- newTyVars [alphaTyVar]
     let n_ty = mkTyVarTy n_tyvar
-        c_ty = mkVisFunTys [elt_ty, n_ty] n_ty
+        c_ty = mkVisFunTysU [elt_ty, n_ty] n_ty
     [c, n] <- sequence [mkSysLocalM (fsLit "c") c_ty, mkSysLocalM (fsLit "n") n_ty]
 
     build_inside <- mk_build_inside (c, c_ty) (n, n_ty)
@@ -804,7 +804,7 @@ runtimeErrorTy :: Type
 -- forall (rr :: RuntimeRep) (a :: rr). Addr# -> a
 --   See Note [Error and friends have an "open-tyvar" forall]
 runtimeErrorTy = mkSpecForAllTys [runtimeRep1TyVar, openAlphaTyVar]
-                                 (mkVisFunTy addrPrimTy openAlphaTy)
+                                 (mkVisFunTyU addrPrimTy openAlphaTy)
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -894,7 +894,7 @@ be relying on anything from it.
 aBSENT_ERROR_ID
  = mkVanillaGlobalWithInfo absentErrorName absent_ty arity_info
  where
-   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTy addrPrimTy alphaTy)
+   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyU addrPrimTy alphaTy)
    -- Not runtime-rep polymorphic. aBSENT_ERROR_ID is only used for
    -- lifted-type things; see Note [Absent errors] in WwLib
    arity_info = vanillaIdInfo `setArityInfo` 1

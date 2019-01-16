@@ -354,7 +354,7 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(dL->L _ name), psb_args = details
          vcat [ ppr implicit_tvs, ppr explicit_univ_tvs, ppr req_theta
               , ppr explicit_ex_tvs, ppr prov_theta, ppr sig_body_ty ]
 
-       ; (arg_tys, pat_ty) <- case tcSplitFunTysN decl_arity sig_body_ty of
+       ; ((unzip->(_, arg_tys)), pat_ty) <- case tcSplitFunTysN decl_arity sig_body_ty of
                                  Right stuff  -> return stuff
                                  Left missing -> wrongNumberOfParmsErr name decl_arity missing
 
@@ -699,16 +699,16 @@ tcPatSynMatcher (dL->L loc name) lpat
                | is_unlifted = ([nlHsVar voidPrimId], [voidPrimTy])
                | otherwise   = (args,                 arg_tys)
              cont_ty = mkInfSigmaTy ex_tvs prov_theta $
-                       mkVisFunTys cont_arg_tys res_ty
+                       mkVisFunTysU cont_arg_tys res_ty
 
-             fail_ty  = mkVisFunTy voidPrimTy res_ty
+             fail_ty  = mkVisFunTyU voidPrimTy res_ty
 
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; scrutinee    <- newSysLocalId (fsLit "scrut") pat_ty
        ; cont         <- newSysLocalId (fsLit "cont")  cont_ty
        ; fail         <- newSysLocalId (fsLit "fail")  fail_ty
 
-       ; let matcher_tau   = mkVisFunTys [pat_ty, cont_ty, fail_ty] res_ty
+       ; let matcher_tau   = mkVisFunTysU [pat_ty, cont_ty, fail_ty] res_ty
              matcher_sigma = mkInfSigmaTy (rr_tv:res_tv:univ_tvs) req_theta matcher_tau
              matcher_id    = mkExportedVanillaId matcher_name matcher_sigma
                              -- See Note [Exported LocalIds] in Id
@@ -798,7 +798,7 @@ mkPatSynBuilderId dir (dL->L _ name)
                               mkForAllTys univ_bndrs $
                               mkForAllTys ex_bndrs $
                               mkPhiTy theta $
-                              mkVisFunTys arg_tys $
+                              mkVisFunTysU arg_tys $
                               pat_ty
              builder_id     = mkExportedVanillaId builder_name builder_sigma
               -- See Note [Exported LocalIds] in Id
@@ -905,7 +905,7 @@ tcPatSynBuilderOcc ps
 
 add_void :: Bool -> Type -> Type
 add_void need_dummy_arg ty
-  | need_dummy_arg = mkVisFunTy voidPrimTy ty
+  | need_dummy_arg = mkVisFunTyU voidPrimTy ty
   | otherwise      = ty
 
 tcPatToExpr :: Name -> [Located Name] -> LPat GhcRn

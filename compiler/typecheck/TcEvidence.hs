@@ -105,7 +105,7 @@ mkTcNomReflCo          :: TcType -> TcCoercionN
 mkTcRepReflCo          :: TcType -> TcCoercionR
 mkTcTyConAppCo         :: Role -> TyCon -> [TcCoercion] -> TcCoercion
 mkTcAppCo              :: TcCoercion -> TcCoercionN -> TcCoercion
-mkTcFunCo              :: Role -> TcCoercion -> TcCoercion -> TcCoercion
+mkTcFunCo              :: Role -> TcCoercionN -> TcCoercion -> TcCoercion -> TcCoercion
 mkTcAxInstCo           :: Role -> CoAxiom br -> BranchIndex
                        -> [TcType] -> [TcCoercion] -> TcCoercion
 mkTcUnbranchedAxInstCo :: CoAxiom Unbranched -> [TcType]
@@ -287,10 +287,14 @@ mkWpFun :: HsWrapper -> HsWrapper
         -> SDoc      -- what caused you to want a WpFun? Something like "When converting ..."
         -> HsWrapper
 mkWpFun WpHole       WpHole       _  _  _ = WpHole
-mkWpFun WpHole       (WpCast co2) t1 _  _ = WpCast (mkTcFunCo Representational (mkTcRepReflCo t1) co2)
-mkWpFun (WpCast co1) WpHole       _  t2 _ = WpCast (mkTcFunCo Representational (mkTcSymCo co1) (mkTcRepReflCo t2))
-mkWpFun (WpCast co1) (WpCast co2) _  _  _ = WpCast (mkTcFunCo Representational (mkTcSymCo co1) co2)
+mkWpFun WpHole       (WpCast co2) t1 _  _ = WpCast (mkTcFunCo Representational unmatchable_refl_co (mkTcRepReflCo t1) co2)
+mkWpFun (WpCast co1) WpHole       _  t2 _ = WpCast (mkTcFunCo Representational unmatchable_refl_co (mkTcSymCo co1) (mkTcRepReflCo t2))
+mkWpFun (WpCast co1) (WpCast co2) _  _  _ = WpCast (mkTcFunCo Representational unmatchable_refl_co (mkTcSymCo co1) co2)
 mkWpFun co1          co2          t1 _  d = WpFun co1 co2 t1 d
+
+-- wrappers are term-level, so always unmatchable
+unmatchable_refl_co :: Coercion
+unmatchable_refl_co = mkNomReflCo unmatchableDataConTy
 
 -- | @mkWpFuns [(ty1, wrap1), (ty2, wrap2)] ty_res wrap_res@,
 -- where @wrap1 :: ty1 "->" ty1'@ and @wrap2 :: ty2 "->" ty2'@,
@@ -305,7 +309,7 @@ mkWpFuns args res_ty res_wrap doc = snd $ go args res_ty res_wrap
     go [] res_ty res_wrap = (res_ty, res_wrap)
     go ((arg_ty, arg_wrap) : args) res_ty res_wrap
       = let (tail_ty, tail_wrap) = go args res_ty res_wrap in
-        (arg_ty `mkVisFunTy` tail_ty, mkWpFun arg_wrap tail_wrap arg_ty tail_ty doc)
+        (arg_ty `mkVisFunTyU` tail_ty, mkWpFun arg_wrap tail_wrap arg_ty tail_ty doc)
 
 mkWpCastR :: TcCoercionR -> HsWrapper
 mkWpCastR co

@@ -31,7 +31,7 @@ import Name                       ( Name, nameSrcSpan, setNameLoc )
 import NameEnv                    ( NameEnv, emptyNameEnv, extendNameEnv, lookupNameEnv )
 import SrcLoc
 import TcHsSyn                    ( hsLitType, hsPatType )
-import Type                       ( mkVisFunTys, Type )
+import Type                       ( mkVisFunTys, mkVisFunTysU, Type )
 import TysWiredIn                 ( mkListTy, mkSumTy )
 import Var                        ( Id, Var, setVarName, varName, varType )
 import TcRnTypes
@@ -488,7 +488,7 @@ instance HasType (LHsExpr GhcTc) where
       fallback = makeNode e' spn
 
       matchGroupType :: MatchGroupTc -> Type
-      matchGroupType (MatchGroupTc args res) = mkVisFunTys args res
+      matchGroupType (MatchGroupTc args res) = mkVisFunTysU args res
 
       -- | Skip desugaring of these expressions for performance reasons.
       --
@@ -1384,6 +1384,8 @@ instance ToHie (SigContext (LSig GhcRn)) where
 instance ToHie (LHsType GhcRn) where
   toHie x = toHie $ TS (ResolvedScopes []) x
 
+instance ToHie (LHsMatchability GhcRn) where
+
 instance ToHie (TScoped (LHsType GhcRn)) where
   toHie (TS tsc (L span t)) = concatM $ makeNode t span : case t of
       HsForAllTy _ _ bndrs body ->
@@ -1405,8 +1407,9 @@ instance ToHie (TScoped (LHsType GhcRn)) where
         [ toHie ty
         , toHie $ TS (ResolvedScopes []) ki
         ]
-      HsFunTy _ a b ->
-        [ toHie a
+      HsFunTy _ m a b ->
+        [ toHie m
+        , toHie a
         , toHie b
         ]
       HsListTy _ a ->

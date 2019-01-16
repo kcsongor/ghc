@@ -150,7 +150,7 @@ rnfKindRep :: KindRep -> ()
 rnfKindRep (KindRepTyConApp tc args) = rnfTyCon tc `seq` rnfList rnfKindRep args
 rnfKindRep (KindRepVar _)   = ()
 rnfKindRep (KindRepApp a b) = rnfKindRep a `seq` rnfKindRep b
-rnfKindRep (KindRepFun a b) = rnfKindRep a `seq` rnfKindRep b
+rnfKindRep (KindRepFun m a b) = rnfKindRep m `seq` rnfKindRep a `seq` rnfKindRep b
 rnfKindRep (KindRepTYPE rr) = rnfRuntimeRep rr
 rnfKindRep (KindRepTypeLitS _ _) = ()
 rnfKindRep (KindRepTypeLitD _ t) = rnfString t
@@ -209,16 +209,17 @@ data TypeRep (a :: k) where
 
     -- | @TrFun fpr a b@ represents a function type @a -> b@. We use this for
     -- the sake of efficiency as functions are quite ubiquitous.
-    TrFun   :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+    TrFun   :: forall (m :: Matchability) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                       (a :: TYPE r1) (b :: TYPE r2).
                { -- See Note [TypeRep fingerprints]
                  trFunFingerprint :: {-# UNPACK #-} !Fingerprint
 
                  -- The TypeRep represents a function from trFunArg to
                  -- trFunRes.
+               , trFunMatchability :: !(TypeRep m)
                , trFunArg :: !(TypeRep a)
                , trFunRes :: !(TypeRep b) }
-            -> TypeRep (a -> b)
+            -> TypeRep (a ->{m} b)
 
 {- Note [TypeRep fingerprints]
    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -327,14 +328,15 @@ instance Ord SomeTypeRep where
 -- @
 --
 pattern Fun :: forall k (fun :: k). ()
-            => forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+            => forall (m :: Matchability) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                       (arg :: TYPE r1) (res :: TYPE r2).
-               (k ~ Type, fun ~~ (arg -> res))
-            => TypeRep arg
+               (k ~ Type, fun ~~ (arg ->{m} res))
+            => TypeRep m
+            -> TypeRep arg
             -> TypeRep res
             -> TypeRep fun
-pattern Fun arg res <- TrFun {trFunArg = arg, trFunRes = res}
-  where Fun arg res = mkTrFun arg res
+pattern Fun m arg res <- TrFun {trFunMatchability = m, trFunArg = arg, trFunRes = res}
+  where Fun m arg res = mkTrFun m arg res
 
 -- | Observe the 'Fingerprint' of a type representation
 --
@@ -424,7 +426,7 @@ mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
   , Just (IsTYPE (ry :: TypeRep ry)) <- isTYPE (typeRepKind y)
   , Just HRefl <- withTypeable x $ withTypeable rx $ withTypeable ry
                   $ typeRep @((->) x :: TYPE ry -> Type) `eqTypeRep` rep
-  = mkTrFun x y
+  = unsafeCoerce (mkTrFun (typeRep @'Matchable) x y)
 mkTrAppChecked a b = mkTrApp a b
 
 -- | A type application.
@@ -613,8 +615,8 @@ instantiateKindRep vars = go
       = vars A.! var
     go (KindRepApp f a)
       = SomeTypeRep $ mkTrApp (unsafeCoerceRep $ go f) (unsafeCoerceRep $ go a)
-    go (KindRepFun a b)
-      = SomeTypeRep $ mkTrFun (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
+    go (KindRepFun m a b)
+      = SomeTypeRep $ mkTrFun (unsafeCoerceRep $ go m) (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
     go (KindRepTYPE LiftedRep) = SomeTypeRep TrType
     go (KindRepTYPE r) = unkindedTypeRep $ tYPE `kApp` runtimeRepTypeRep r
     go (KindRepTypeLitS sort s)
@@ -622,7 +624,9 @@ instantiateKindRep vars = go
     go (KindRepTypeLitD sort s)
       = mkTypeLitFromString sort s
 
-    tYPE = kindedTypeRep @(RuntimeRep -> Type) @TYPE
+    -- TODO (csongor): the kind application got renamed to unmatchable because
+    -- it's at the type-level (whereas it's actually at the kind-level)
+    tYPE = kindedTypeRep @_ @(TYPE :: RuntimeRep -> Type)
 
 unsafeCoerceRep :: SomeTypeRep -> TypeRep a
 unsafeCoerceRep (SomeTypeRep r) = unsafeCoerce r
@@ -634,7 +638,13 @@ data SomeKindedTypeRep k where
     SomeKindedTypeRep :: forall k (a :: k). TypeRep a
                       -> SomeKindedTypeRep k
 
-kApp :: SomeKindedTypeRep (k -> k')
+-- TODO (csongor) This is a nasty hack. all *type* arrows (but not *kind*)
+-- arrows are currently renamed to unmatchable. This way we can force a type to
+-- be namespaced as a kind.
+type KindOf (a :: k) = k
+type family T :: k
+
+kApp :: SomeKindedTypeRep (KindOf (T :: k -> k'))
      -> SomeKindedTypeRep k
      -> SomeKindedTypeRep k'
 kApp (SomeKindedTypeRep f) (SomeKindedTypeRep a) =
@@ -708,12 +718,12 @@ vecElemTypeRep e =
     rep :: forall (a :: VecElem). Typeable a => SomeKindedTypeRep VecElem
     rep = kindedTypeRep @VecElem @a
 
-bareArrow :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+bareArrow :: forall (m :: Matchability) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                     (a :: TYPE r1) (b :: TYPE r2). ()
-          => TypeRep (a -> b)
-          -> TypeRep ((->) :: TYPE r1 -> TYPE r2 -> Type)
-bareArrow (TrFun _ a b) =
-    mkTrCon funTyCon [SomeTypeRep rep1, SomeTypeRep rep2]
+          => TypeRep (a ->{m} b)
+          -> TypeRep ((->>) m :: TYPE r1 -> TYPE r2 -> Type)
+bareArrow (TrFun _ m a b) =
+    mkTrCon funTyCon [SomeTypeRep m, SomeTypeRep rep1, SomeTypeRep rep2]
   where
     rep1 = getRuntimeRep $ typeRepKind a :: TypeRep r1
     rep2 = getRuntimeRep $ typeRepKind b :: TypeRep r2
@@ -812,8 +822,8 @@ splitApps = go []
       = (tc, xs)
     go xs (TrApp {trAppFun = f, trAppArg = x})
       = go (SomeTypeRep x : xs) f
-    go [] (TrFun {trFunArg = a, trFunRes = b})
-      = (funTyCon, [SomeTypeRep a, SomeTypeRep b])
+    go [] (TrFun {trFunMatchability = m, trFunArg = a, trFunRes = b})
+      = (funTyCon, [SomeTypeRep m, SomeTypeRep a, SomeTypeRep b])
     go _  (TrFun {})
       = errorWithoutStackTrace "Data.Typeable.Internal.splitApps: Impossible 1"
     go [] TrType = (tyConTYPE, [SomeTypeRep trLiftedRep])
@@ -833,9 +843,10 @@ splitApps = go []
 -- #14480.
 tyConTYPE :: TyCon
 tyConTYPE = mkTyCon (tyConPackage liftedRepTyCon) "GHC.Prim" "TYPE" 0
-       (KindRepFun (KindRepTyConApp liftedRepTyCon []) (KindRepTYPE LiftedRep))
+       (KindRepFun (KindRepTyConApp matchableTyCon []) (KindRepTyConApp liftedRepTyCon []) (KindRepTYPE LiftedRep))
   where
     liftedRepTyCon = typeRepTyCon (typeRep @RuntimeRep)
+    matchableTyCon = typeRepTyCon (typeRep @'Matchable)
 
 funTyCon :: TyCon
 funTyCon = typeRepTyCon (typeRep @(->))
@@ -993,11 +1004,12 @@ typeLitTypeRep :: forall k (a :: k). (Typeable k) =>
 typeLitTypeRep nm kind_tycon = mkTrCon (mkTypeLitTyCon nm kind_tycon) []
 
 -- | For compiler use.
-mkTrFun :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+mkTrFun :: forall (m :: Matchability) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                   (a :: TYPE r1) (b :: TYPE r2).
-           TypeRep a -> TypeRep b -> TypeRep ((a -> b) :: Type)
-mkTrFun arg res = TrFun
+           TypeRep m -> TypeRep a -> TypeRep b -> TypeRep ((a ->{m} b) :: Type)
+mkTrFun m arg res = TrFun
     { trFunFingerprint = fpr
+    , trFunMatchability = m
     , trFunArg = arg
     , trFunRes = res }
   where fpr = fingerprintFingerprints [ typeRepFingerprint arg

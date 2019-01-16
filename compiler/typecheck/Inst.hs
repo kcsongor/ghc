@@ -6,7 +6,7 @@
 The @Inst@ type: dictionaries or method instances
 -}
 
-{-# LANGUAGE CPP, MultiWayIf, TupleSections #-}
+{-# LANGUAGE CPP, MultiWayIf, TupleSections, ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Inst (
@@ -144,7 +144,7 @@ deeplySkolemise ty
     init_subst = mkEmptyTCvSubst (mkInScopeSet (tyCoVarsOfType ty))
 
     go subst ty
-      | Just (arg_tys, tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
+      | Just (unzip -> (arg_ms, arg_tys), tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
       = do { let arg_tys' = substTys subst arg_tys
            ; ids1           <- newSysLocalIds (fsLit "dk") arg_tys'
            ; (subst', tvs1) <- tcInstSkolTyVarsX subst tvs
@@ -158,7 +158,7 @@ deeplySkolemise ty
                       <.> mkWpEvVarApps ids1
                     , tv_prs1  ++ tvs_prs2
                     , ev_vars1 ++ ev_vars2
-                    , mkVisFunTys arg_tys' rho ) }
+                    , mkVisFunTys (zip arg_ms arg_tys') rho ) }
 
       | otherwise
       = return (idHsWrapper, [], [], substTy subst ty)
@@ -255,7 +255,7 @@ deeply_instantiate :: CtOrigin
 -- the types on return.  See #12549.
 
 deeply_instantiate orig subst ty
-  | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
+  | Just (unzip -> (arg_ms, arg_tys), tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
   = do { (subst', tvs') <- newMetaTyVarsX subst tvs
        ; let arg_tys' = substTys   subst' arg_tys
              theta'   = substTheta subst' theta
@@ -272,7 +272,7 @@ deeply_instantiate orig subst ty
                     <.> wrap2
                     <.> wrap1
                     <.> mkWpEvVarApps ids1,
-                 mkVisFunTys arg_tys' rho2) }
+                 mkVisFunTys (zip arg_ms arg_tys') rho2) }
 
   | otherwise
   = do { let ty' = substTy subst ty
@@ -359,7 +359,7 @@ instCallConstraints orig preds
            ; return (evCoercion co) }
 
        -- Try short-cut #2
-     | Just (tc, args@[_, _, ty1, ty2]) <- splitTyConApp_maybe pred
+     | Just (tc, args@[_, _, _, ty1, ty2]) <- splitTyConApp_maybe pred
      , tc `hasKey` heqTyConKey
      = do { co <- unifyType Nothing ty1 ty2
           ; return (evDFunApp (dataConWrapId heqDataCon) args [Coercion co]) }
@@ -422,7 +422,7 @@ tcInstInvisibleTyBinders n ty
 
     go n subst kind
       | n > 0
-      , Just (bndr, body) <- tcSplitPiTy_maybe kind
+      , Just (_, bndr, body) <- tcSplitPiTy_maybe kind
       , isInvisibleBinder bndr
       = do { (subst', arg) <- tcInstInvisibleTyBinder subst bndr
            ; (args, inner_ty) <- go (n-1) subst' body

@@ -26,7 +26,7 @@ module Outputable (
         parens, cparen, brackets, braces, quotes, quote,
         doubleQuotes, angleBrackets,
         semi, comma, colon, dcolon, space, equals, dot, vbar,
-        arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt,
+        arrow, uarrow, parrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt,
         lparen, rparen, lbrack, rbrack, lbrace, rbrace, underscore,
         blankLine, forAllLit, kindType, bullet,
         (<>), (<+>), hcat, hsep,
@@ -615,12 +615,14 @@ quotes d =
              _other              -> Pretty.quotes pp_d
 
 semi, comma, colon, equals, space, dcolon, underscore, dot, vbar :: SDoc
-arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt :: SDoc
+arrow, uarrow, parrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt :: SDoc
 lparen, rparen, lbrack, rbrack, lbrace, rbrace, blankLine :: SDoc
 
 blankLine  = docToSDoc $ Pretty.text ""
 dcolon     = unicodeSyntax (char '∷') (docToSDoc $ Pretty.text "::")
 arrow      = unicodeSyntax (char '→') (docToSDoc $ Pretty.text "->")
+parrow     = unicodeSyntax (char '→') (docToSDoc $ Pretty.text "->>")
+uarrow     = unicodeSyntax (char '→') (docToSDoc $ Pretty.text "~>")
 larrow     = unicodeSyntax (char '←') (docToSDoc $ Pretty.text "<-")
 darrow     = unicodeSyntax (char '⇒') (docToSDoc $ Pretty.text "=>")
 arrowt     = unicodeSyntax (char '⤚') (docToSDoc $ Pretty.text ">-")

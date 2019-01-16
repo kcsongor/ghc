@@ -135,13 +135,13 @@ toIfaceTypeX fr ty@(AppTy {})  =
   -- Flatten as many argument AppTys as possible, then turn them into an
   -- IfaceAppArgs list.
   -- See Note [Suppressing invisible arguments] in IfaceType.
-  let (head, args) = splitAppTys ty
+  let (head, args) = splitAppTys True ty
   in IfaceAppTy (toIfaceTypeX fr head) (toIfaceAppTyArgsX fr head args)
 toIfaceTypeX _  (LitTy n)      = IfaceLitTy (toIfaceTyLit n)
 toIfaceTypeX fr (ForAllTy b t) = IfaceForAllTy (toIfaceForAllBndrX fr b)
                                                (toIfaceTypeX (fr `delVarSet` binderVar b) t)
-toIfaceTypeX fr (FunTy { ft_arg = t1, ft_res = t2, ft_af = af })
-  = IfaceFunTy af (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
+toIfaceTypeX fr (FunTy { ft_arg = t1, ft_res = t2, ft_af = af, ft_ma = m })
+  = IfaceFunTy af (toIfaceMatchabilityX fr m) (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
 toIfaceTypeX fr (CastTy ty co)  = IfaceCastTy (toIfaceTypeX fr ty) (toIfaceCoercionX fr co)
 toIfaceTypeX fr (CoercionTy co) = IfaceCoercionTy (toIfaceCoercionX fr co)
 
@@ -260,9 +260,9 @@ toIfaceCoercionX fr co
                                           (toIfaceTypeX fr t2)
     go (TyConAppCo r tc cos)
       | tc `hasKey` funTyConKey
-      , [_,_,_,_] <- cos         = pprPanic "toIfaceCoercion" (ppr co)
+      , [_,_,_,_,_] <- cos       = pprPanic "toIfaceCoercion" (ppr co)
       | otherwise                = IfaceTyConAppCo r (toIfaceTyCon tc) (map go cos)
-    go (FunCo r co1 co2)   = IfaceFunCo r (go co1) (go co2)
+    go (FunCo r mco co1 co2)     = IfaceFunCo r (go mco) (go co1) (go co2)
 
     go (ForAllCo tv k co) = IfaceForAllCo (toIfaceBndr tv)
                                           (toIfaceCoercionX fr' k)
@@ -325,6 +325,12 @@ toIfaceAppArgsX fr kind ty_args
         -- isEmptyTCvSubst we'd get an infinite loop (#15473)
         WARN( True, ppr kind $$ ppr ty_args )
         IA_Arg (toIfaceTypeX fr t1) Required (go env ty ts1)
+
+toIfaceMatchabilityX :: HasCallStack => VarSet -> Matchability -> IfaceMatchability
+toIfaceMatchabilityX fr m
+  | isMatchableTy m   = IMatchable
+  | isUnmatchableTy m = IUnmatchable
+  | otherwise         = IExplicitMatchability (toIfaceTypeX fr m)
 
 tidyToIfaceType :: TidyEnv -> Type -> IfaceType
 tidyToIfaceType env ty = toIfaceType (tidyType env ty)

@@ -6,7 +6,7 @@
 \section[TcExpr]{Typecheck an expression}
 -}
 
-{-# LANGUAGE CPP, TupleSections, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, TupleSections, ScopedTypeVariables, ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -439,7 +439,7 @@ tcExpr expr@(SectionR x op arg2) res_ty
        ; (wrap_fun, [arg1_ty, arg2_ty], op_res_ty)
                   <- matchActualFunTys (mk_op_msg op) fn_orig (Just (unLoc op)) 2 op_ty
        ; wrap_res <- tcSubTypeHR SectionOrigin (Just expr)
-                                 (mkVisFunTy arg1_ty op_res_ty) res_ty
+                                 (mkVisFunTyU arg1_ty op_res_ty) res_ty
        ; arg2' <- tcArg op arg2 arg2_ty 2
        ; return ( mkHsWrap wrap_res $
                   SectionR x (mkLHsWrap wrap_fun op') arg2' ) }
@@ -459,7 +459,7 @@ tcExpr expr@(SectionL x arg1 op) res_ty
            <- matchActualFunTys (mk_op_msg op) fn_orig (Just (unLoc op))
                                 n_reqd_args op_ty
        ; wrap_res <- tcSubTypeHR SectionOrigin (Just expr)
-                                 (mkVisFunTys arg_tys op_res_ty) res_ty
+                                 (mkVisFunTysU arg_tys op_res_ty) res_ty
        ; arg1' <- tcArg op arg1 arg1_ty 1
        ; return ( mkHsWrap wrap_res $
                   SectionL x arg1' (mkLHsWrap wrap_fn op') ) }
@@ -491,7 +491,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let actual_res_ty
-                 = mkVisFunTys [ty | (ty, (L _ (Missing _))) <- arg_tys `zip` tup_args]
+                 = mkVisFunTysU [ty | (ty, (L _ (Missing _))) <- arg_tys `zip` tup_args]
                             (mkTupleTy boxity arg_tys)
 
        ; wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "ExpTuple")
@@ -668,7 +668,7 @@ tcExpr expr@(RecordCon { rcon_con_name = L loc con_name
               -- a shallow instantiation should really be enough for
               -- a data constructor.
         ; let arity = conLikeArity con_like
-              Right (arg_tys, actual_res_ty) = tcSplitFunTysN arity con_tau
+              Right ((unzip->(_,arg_tys)), actual_res_ty) = tcSplitFunTysN arity con_tau
         ; case conLikeWrapId_maybe con_like of
                Nothing -> nonBidirectionalErr (conLikeName con_like)
                Just con_id -> do {
@@ -1169,7 +1169,7 @@ tcApp m_herald fun@(L loc (HsVar _ (L _ fun_id))) args res_ty
   = do { rep <- newFlexiTyVarTy runtimeRepTy
        ; let [alpha, beta] = mkTemplateTyVars [liftedTypeKind, tYPE rep]
              seq_ty = mkSpecForAllTys [alpha,beta]
-                      (mkTyVarTy alpha `mkVisFunTy` mkTyVarTy beta `mkVisFunTy` mkTyVarTy beta)
+                      (mkTyVarTy alpha `mkVisFunTyU` mkTyVarTy beta `mkVisFunTyU` mkTyVarTy beta)
              seq_fun = L loc (HsVar noExt (L loc seqId))
              -- seq_ty = forall (a:*) (b:TYPE r). a -> b -> b
              -- where 'r' is a meta type variable
@@ -1738,9 +1738,9 @@ tcCheckRecSelId rn_expr f@(Unambiguous _ (L _ lbl)) res_ty
          tcWrapResultO (OccurrenceOfRecSel lbl) rn_expr expr actual_res_ty res_ty }
 tcCheckRecSelId rn_expr (Ambiguous _ lbl) res_ty
   = case tcSplitFunTy_maybe =<< checkingExpType_maybe res_ty of
-      Nothing       -> ambiguousSelector lbl
-      Just (arg, _) -> do { sel_name <- disambiguateSelector lbl arg
-                          ; tcCheckRecSelId rn_expr (Unambiguous sel_name lbl)
+      Nothing         -> ambiguousSelector lbl
+      Just (_,arg, _) -> do { sel_name <- disambiguateSelector lbl arg
+                            ; tcCheckRecSelId rn_expr (Unambiguous sel_name lbl)
                                                     res_ty }
 tcCheckRecSelId _ (XAmbiguousFieldOcc _) _ = panic "tcCheckRecSelId"
 

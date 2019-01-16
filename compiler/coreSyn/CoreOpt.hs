@@ -1227,7 +1227,7 @@ pushCoValArg co
   = Just (mkRepReflCo arg, MRefl)
 
   | isFunTy tyL
-  , (co1, co2) <- decomposeFunCo Representational co
+  , (_, co1, co2) <- decomposeFunCo Representational co
               -- If   co  :: (tyL1 -> tyL2) ~ (tyR1 -> tyR2)
               -- then co1 :: tyL1 ~ tyR1
               --      co2 :: tyL2 ~ tyR2
@@ -1249,9 +1249,9 @@ pushCoercionIntoLambda
 pushCoercionIntoLambda in_scope x e co
     | ASSERT(not (isTyVar x) && not (isCoVar x)) True
     , Pair s1s2 t1t2 <- coercionKind co
-    , Just (_s1,_s2) <- splitFunTy_maybe s1s2
-    , Just (t1,_t2) <- splitFunTy_maybe t1t2
-    = let (co1, co2) = decomposeFunCo Representational co
+    , Just (_,_s1,_s2) <- splitFunTy_maybe s1s2
+    , Just (_,t1,_t2) <- splitFunTy_maybe t1t2
+    = let (_,co1, co2) = decomposeFunCo Representational co
           -- Should we optimize the coercions here?
           -- Otherwise they might not match too well
           x' = x `setIdType` t1
@@ -1373,7 +1373,7 @@ collectBindersPushingCo e
       | isId b
       , let Pair tyL tyR = coercionKind co
       , ASSERT( isFunTy tyL) isFunTy tyR
-      , (co_arg, co_res) <- decomposeFunCo Representational co
+      , (_, co_arg, co_res) <- decomposeFunCo Representational co
       , isReflCo co_arg  -- See Note [collectBindersPushingCo]
       = go_c (b:bs) e co_res
 

@@ -516,12 +516,12 @@ instance Eq (DeBruijn Type) where
                 (Nothing, Nothing)  -> v == v'
                 _ -> False
                 -- See Note [Equality on AppTys] in Type
-        (AppTy t1 t2, s) | Just (t1', t2') <- repSplitAppTy_maybe s
+        (AppTy t1 t2, s) | Just (t1', t2') <- repSplitAppTy_maybe True s
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
-        (s, AppTy t1' t2') | Just (t1, t2) <- repSplitAppTy_maybe s
+        (s, AppTy t1' t2') | Just (t1, t2) <- repSplitAppTy_maybe True s
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
-        (FunTy _ t1 t2, FunTy _ t1' t2')
-            -> D env t1 == D env' t1' && D env t2 == D env' t2'
+        (FunTy _ m t1 t2, FunTy _ m' t1' t2')
+            -> D env m == D env' m' && D env t1 == D env' t1' && D env t2 == D env' t2'
         (TyConApp tc tys, TyConApp tc' tys')
             -> tc == tc' && D env tys == D env' tys'
         (LitTy l, LitTy l')

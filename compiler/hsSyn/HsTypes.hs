@@ -24,6 +24,7 @@ module HsTypes (
         HsImplicitBndrs(..),
         HsWildCardBndrs(..),
         LHsSigType, LHsSigWcType, LHsWcType,
+        LHsMatchability(..),
         HsTupleSort(..),
         HsContext, LHsContext, noLHsContext,
         HsTyLit(..),
@@ -46,6 +47,9 @@ module HsTypes (
         unambiguousFieldOcc, ambiguousFieldOcc,
 
         mkAnonWildCardTy, pprAnonWildCard,
+
+        unmatchableDataConHsTy, matchableDataConHsTy,
+        matchabilityToLHsType,
 
         mkHsImplicitBndrs, mkHsWildCardBndrs, hsImplicitBody,
         mkEmptyImplicitBndrs, mkEmptyWildCardBndrs,
@@ -81,6 +85,7 @@ import Name( Name )
 import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
+import TysWiredIn( matchableDataConName, unmatchableDataConName )
 import TysPrim( funTyConName )
 import Type
 import HsDoc
@@ -549,6 +554,7 @@ data HsType pass
                         (LHsKind pass)
 
   | HsFunTy             (XFunTy pass)
+                        (LHsMatchability pass)
                         (LHsType pass)   -- function type
                         (LHsType pass)
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow',
@@ -685,6 +691,29 @@ data HsType pass
   -- For adding new constructors via Trees that Grow
   | XHsType
       (XXType pass)
+
+data LHsMatchability pass
+  = HsMatchable
+  | HsUnmatchable
+  | HsExplicitMatchability (LHsType pass)
+
+deriving instance (Data pass, Data (HsType pass)) => Data (LHsMatchability pass)
+
+instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (LHsMatchability p) where
+  ppr HsMatchable                = text "matchable"
+  ppr HsUnmatchable              = text "unmatchable"
+  ppr (HsExplicitMatchability m) = text "explicit{" <+> ppr m <+> text "}"
+
+unmatchableDataConHsTy :: HsType GhcRn
+unmatchableDataConHsTy = HsTyVar noExt IsPromoted (noLoc unmatchableDataConName)
+
+matchableDataConHsTy :: HsType GhcRn
+matchableDataConHsTy = HsTyVar noExt IsPromoted (noLoc matchableDataConName)
+
+matchabilityToLHsType :: LHsMatchability GhcRn -> LHsType GhcRn
+matchabilityToLHsType HsMatchable = noLoc matchableDataConHsTy
+matchabilityToLHsType HsUnmatchable = noLoc unmatchableDataConHsTy
+matchabilityToLHsType (HsExplicitMatchability m) = m
 
 data NewHsTypeX
   = NHsCoreTy Type -- An escape hatch for tunnelling a *closed*
@@ -1070,12 +1099,13 @@ splitHsFunType :: LHsType GhcRn -> ([LHsType GhcRn], LHsType GhcRn)
 splitHsFunType (L _ (HsParTy _ ty))
   = splitHsFunType ty
 
-splitHsFunType (L _ (HsFunTy _ x y))
+splitHsFunType (L _ (HsFunTy _ _ x y))
   | (args, res) <- splitHsFunType y
   = (x:args, res)
 {- This is not so correct, because it won't work with visible kind app, in case
   someone wants to write '(->) @k1 @k2 t1 t2'. Fixing this would require changing
   ConDeclGADT abstract syntax -}
+-- TODO (csongor): should we filter out matchabilities?
 splitHsFunType orig_ty@(L _ (HsAppTy _ t1 t2))
   = go t1 [t2]
   where  -- Look for (->) t1 t2, possibly with parenthesisation
@@ -1513,7 +1543,7 @@ ppr_mono_ty (HsRecTy _ flds)      = pprConDeclFields flds
 ppr_mono_ty (HsTyVar _ prom (L _ name))
   | isPromoted prom = quote (pprPrefixOcc name)
   | otherwise       = pprPrefixOcc name
-ppr_mono_ty (HsFunTy _ ty1 ty2)   = ppr_fun_ty ty1 ty2
+ppr_mono_ty (HsFunTy _ mty ty1 ty2)= ppr_fun_ty mty ty1 ty2
 ppr_mono_ty (HsTupleTy _ con tys) = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
@@ -1559,12 +1589,16 @@ ppr_mono_ty (XHsType t) = ppr t
 
 --------------------------
 ppr_fun_ty :: (OutputableBndrId (GhcPass p))
-           => LHsType (GhcPass p) -> LHsType (GhcPass p) -> SDoc
-ppr_fun_ty ty1 ty2
+           => LHsMatchability (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p) -> SDoc
+ppr_fun_ty mty ty1 ty2
   = let p1 = ppr_mono_lty ty1
         p2 = ppr_mono_lty ty2
+        arr = case mty of
+          HsMatchable -> arrow
+          HsUnmatchable -> uarrow
+          HsExplicitMatchability m -> arrow <> char '{'  <> ppr m <> char '}'
     in
-    sep [p1, arrow <+> p2]
+    sep [p1, arr <+> p2]
 
 --------------------------
 ppr_tylit :: HsTyLit -> SDoc
@@ -1623,7 +1657,7 @@ lhsTypeHasLeadingPromotionQuote ty
     go (HsBangTy{})          = False
     go (HsRecTy{})           = False
     go (HsTyVar _ p _)       = isPromoted p
-    go (HsFunTy _ arg _)     = goL arg
+    go (HsFunTy _ _ arg _)   = goL arg
     go (HsListTy{})          = False
     go (HsTupleTy{})         = False
     go (HsSumTy{})           = False

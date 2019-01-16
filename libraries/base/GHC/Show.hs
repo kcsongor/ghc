@@ -577,8 +577,10 @@ instance Show KindRep where
       . showsPrec 11 p
       . showString " "
       . showsPrec 11 q
-  showsPrec d (KindRepFun p q) = showParen (d > 10) $
+  showsPrec d (KindRepFun m p q) = showParen (d > 10) $
     showString "KindRepFun "
+      . showsPrec 11 m
+      . showString " "
       . showsPrec 11 p
       . showString " "
       . showsPrec 11 q
