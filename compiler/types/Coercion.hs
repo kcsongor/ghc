@@ -282,13 +282,14 @@ tidyCoAxBndrsForUser init_env tcvs
 Note [Function coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 Remember that
-  (->) :: forall r1 r2. TYPE r1 -> TYPE r2 -> TYPE LiftedRep
+  (->) :: forall (m :: Matchability) r1 r2. TYPE r1 -> TYPE r2 -> TYPE LiftedRep
 
 Hence
-  FunCo r co1 co2 :: (s1->t1) ~r (s2->t2)
+  FunCo mco r co1 co2 :: (s1->{m1}t1) ~r (s2->{m2}t2)
 is short for
-  TyConAppCo (->) co_rep1 co_rep2 co1 co2
-where co_rep1, co_rep2 are the coercions on the representations.
+  TyConAppCo (->) mco co_rep1 co_rep2 co1 co2
+where co_rep1, co_rep2 are the coercions on the representations and
+mco is the coercion on the matchability.
 -}
 
 
@@ -311,9 +312,9 @@ decomposeFunCo :: HasDebugCallStack
                -> (Coercion, Coercion, Coercion)
 -- Expects co :: (s1 ->{m1} t1) ~ (s2 ->{m2} t2)
 -- Returns (mco :: m1~m2, co1 :: s1~s2, co2 :: t1~t2)
--- See Note [Function coercions] for the "3" and "4"
+-- See Note [Function coercions] for the "0", "3", and "4"
 decomposeFunCo r co = ASSERT2( all_ok, ppr co )
-                      (mkNthCo Nominal 2 co, mkNthCo r 3 co, mkNthCo r 4 co)
+                      (mkNthCo Nominal 0 co, mkNthCo r 3 co, mkNthCo r 4 co)
   where
     Pair s1t1 s2t2 = coercionKind co
     all_ok = isFunTy s1t1 && isFunTy s2t2
