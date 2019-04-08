@@ -107,9 +107,9 @@ idF = id
 type family Flip (f :: j ->{m} k ->{n} l) (a :: k) (b :: j)  :: l where
   Flip f a b = f b a
 
-type family (<<<) (f :: b ->{m} c) (g :: a ->{n} b) (x :: a) :: c where
-  (f <<< g) x = f (g x)
-infixr 9 <<<
+type family (.) (f :: b ->{m} c) (g :: a ->{n} b) (x :: a) :: c where
+  (f . g) x = f (g x)
+infixr 9 .
 
 ----------------------------------------------------------------------------------
 foo :: (f :: * ~> *) ~ Id => f Int
