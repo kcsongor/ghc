@@ -18,6 +18,8 @@ module Test where
 import GHC.TypeLits
 import GHC.Types
 import Data.Proxy
+import GHC.Generics
+import Data.Coerce
 
 import Type.Reflection
 
@@ -52,6 +54,14 @@ testU2 = T 10
 
 testM :: T Maybe
 testM = T (Just 10)
+
+newtype Identity a = Identity a
+
+data Person (f :: * ->{m} *) = MkPerson { name :: f String,  age :: f Int}
+  deriving Generic
+
+coercePerson :: Person Identity -> Person Id
+coercePerson = to . coerce . from
 
 --------------------------------------------------------------------------------------
 

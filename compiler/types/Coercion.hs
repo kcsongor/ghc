@@ -2406,13 +2406,11 @@ buildCoercion orig_ty1 orig_ty2 = go orig_ty1 orig_ty2
         mkTyConAppCo Nominal tc1 (zipWith go args1 args2)
 
     go (AppTy ty1a ty1b) ty2
-      | Just (ty2a, ty2b) <- repSplitAppTy_maybe False ty2
-      , isMatchableFunTy ty1a
+      | Just (ty2a, ty2b) <- repSplitAppTy_maybe True ty2
       = mkAppCo (go ty1a ty2a) (go ty1b ty2b)
 
     go ty1 (AppTy ty2a ty2b)
-      | Just (ty1a, ty1b) <- repSplitAppTy_maybe False ty1
-      , isMatchableFunTy ty2a
+      | Just (ty1a, ty1b) <- repSplitAppTy_maybe True ty1
       = mkAppCo (go ty1a ty2a) (go ty1b ty2b)
 
     go (ForAllTy (Bndr tv1 _flag1) ty1) (ForAllTy (Bndr tv2 _flag2) ty2)
