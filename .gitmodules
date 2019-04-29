@@ -91,7 +91,6 @@
 	path = utils/haddock
 	url = git@gitlab.haskell.org:kcsongor/haddock.git
 	ignore = untracked
-	branch = ghc-head
 [submodule "nofib"]
 	path = nofib
 	url = ../nofib.git
