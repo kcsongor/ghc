@@ -831,6 +831,12 @@ data TcLclEnv           -- Changes as we move inside an expression
 
         tcl_usage :: TcRef UsageEnv, -- Required multiplicity of bindings is accumulated here.
 
+        -- TODO(csongor): a local environment needs to record its own usage of
+        -- constraints for linearity checking, so this is used to 'tag' the generated
+        -- wanted constraints. Then finally new constraints are emitted to verify
+        -- that the differently tagged constraints agree with each other.
+        -- tcl_constraint_mult_uniq :: ?
+
 
         tcl_bndrs :: TcBinderStack,   -- Used for reporting relevant bindings,
                                       -- and for tidying types
@@ -1753,6 +1759,8 @@ data Ct
       -- NB: I expect to make more of the cases in Ct
       --     look like this, with the payload in an
       --     auxiliary type
+  -- TODO(csongor): Add a new type of constraint here that talks about
+  -- unifiability of two evidence formulas
 
 ------------
 data QCInst  -- A much simplified version of ClsInst

@@ -212,6 +212,10 @@ tcExpr e@(HsIPVar _ x) res_ty
        ; let ip_name = mkStrLitTy (hsIPNameFS x)
        ; ipClass <- tcLookupClass ipClassName
        ; ip_var <- emitWantedEvVar origin (mkClassPred ipClass [ip_name, ip_ty])
+       -- TODO(csongor): here, we know that we generated a new usage
+       -- of the IP, so emit a constraint accordinly.
+       -- What should this constraint look like? Be careful here of shadowing.
+       -- (need to handle this in tcLocalBinds)
        ; tcWrapResult e
                    (fromDict ipClass ip_name ip_ty (HsVar noExt (noLoc ip_var)))
                    ip_ty res_ty }
@@ -591,6 +595,25 @@ tcExpr (HsIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
            -- Just like Note [Case branches must never infer a non-tau type]
            -- in TcMatches (See #10619)
 
+       -- TODO(csongor): Generate different constraint tags for the
+       -- two branches here (local env).
+       -- When done with that, emit a constraint that the two tags agree.
+
+       -- How to handle this?: linear_fun ?x
+       -- When checking arguments (tcArg), the environment is
+       -- scaled. I think we simply emit Use constraint here with the
+       -- scale as the amount.
+       --
+       -- foo b = if b
+       -- then ?x + ?x         [tag1]
+       -- else linear_fun ?x   [tag2]
+       --
+       -- (1) (a): Use tag1 One
+       -- (1) (b): Use tag1 One
+       --          ^^^ these interact with addition => Use tag1 Omega
+       -- (2): Use tag2 One
+       -- (3): final_mult?x ~ Sup tag1 tag2
+       -- final_mult?x ~ Omega
        ; (u1,b1') <- tcCollectingUsage $ tcMonoExpr b1 res_ty
        ; (u2,b2') <- tcCollectingUsage $ tcMonoExpr b2 res_ty
        ; tcEmitBindingUsage (supUE u1 u2)

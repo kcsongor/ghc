@@ -1,0 +1,28 @@
+
+==================== Desugar (after optimization) ====================
+2019-06-18 23:20:58.700914 UTC
+
+Result size of Desugar (after optimization)
+  = {terms: 16, types: 9, coercions: 0, joins: 0/0}
+
+-- RHS size: {terms: 9, types: 2, coercions: 0, joins: 0/0}
+linearCase :: Bool ->. Int
+[LclIdX]
+linearCase
+  = \ (b_a1Xx :: Bool) ->
+      case b_a1Xx of {
+        False -> GHC.Types.I# 20#;
+        True -> GHC.Types.I# 10#
+      }
+
+-- RHS size: {terms: 5, types: 4, coercions: 0, joins: 0/0}
+Ex1.$trModule :: GHC.Types.Module
+[LclIdX]
+Ex1.$trModule
+  = GHC.Types.$WModule
+      @ 'Omega
+      @ 'Omega
+      (GHC.Types.$WTrNameS @ 'Omega "main"#)
+      (GHC.Types.$WTrNameS @ 'Omega "Ex1"#)
+
+

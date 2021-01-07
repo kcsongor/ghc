@@ -344,6 +344,7 @@ tcLocalBinds (HsIPBinds x (IPBinds _ ip_binds)) thing_inside
         -- If the binding binds ?x = E, we  must now
         -- discharge any ?x constraints in expr_lie
         -- See Note [Implicit parameter untouchables]
+        -- TODO(csongor): this is where shadowing of an IP binder happens.
         ; (ev_binds, result) <- checkConstraints (IPSkol ips)
                                   [] given_ips thing_inside
 

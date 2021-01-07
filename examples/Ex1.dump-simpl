@@ -1,0 +1,43 @@
+
+==================== Tidy Core ====================
+2019-06-15 10:50:23.235131 UTC
+
+Result size of Tidy Core
+  = {terms: 20, types: 11, coercions: 0, joins: 0/0}
+
+-- RHS size: {terms: 2, types: 1, coercions: 0, joins: 0/0}
+id1 :: Int ->. Int
+[GblId, Arity=1, Caf=NoCafRefs, Unf=OtherCon []]
+id1 = \ (x_a1Xx :: Int) -> x_a1Xx
+
+-- RHS size: {terms: 2, types: 1, coercions: 0, joins: 0/0}
+id2 :: Int -> Int
+[GblId, Arity=1, Caf=NoCafRefs, Unf=OtherCon []]
+id2 = \ (x_a1Xy :: Int) -> x_a1Xy
+
+-- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
+$trModule1_r1Xn :: GHC.Prim.Addr#
+[GblId, Caf=NoCafRefs, Unf=OtherCon []]
+$trModule1_r1Xn = "main"#
+
+-- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
+$trModule2_r1YY :: GHC.Types.TrName
+[GblId, Caf=NoCafRefs, Unf=OtherCon []]
+$trModule2_r1YY = GHC.Types.TrNameS $trModule1_r1Xn
+
+-- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
+$trModule3_r1YZ :: GHC.Prim.Addr#
+[GblId, Caf=NoCafRefs, Unf=OtherCon []]
+$trModule3_r1YZ = "Ex1"#
+
+-- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
+$trModule4_r1Z0 :: GHC.Types.TrName
+[GblId, Caf=NoCafRefs, Unf=OtherCon []]
+$trModule4_r1Z0 = GHC.Types.TrNameS $trModule3_r1YZ
+
+-- RHS size: {terms: 3, types: 0, coercions: 0, joins: 0/0}
+Ex1.$trModule :: GHC.Types.Module
+[GblId, Caf=NoCafRefs, Unf=OtherCon []]
+Ex1.$trModule = GHC.Types.Module $trModule2_r1YY $trModule4_r1Z0
+
+

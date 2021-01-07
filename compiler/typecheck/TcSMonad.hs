@@ -29,6 +29,8 @@ module TcSMonad (
     traceFireTcS, bumpStepCountTcS, csTraceTcS,
     wrapErrTcS, wrapWarnTcS,
 
+    emitBindingUsageTcS,
+
     -- Evidence creation and transformation
     MaybeNew(..), freshGoals, isFresh, getEvExpr,
 
@@ -170,7 +172,11 @@ import UniqFM
 import UniqDFM
 import Maybes
 
+import UsageEnv
+import Multiplicity
+
 import CoreMap
+import CoreSyn
 import Control.Monad
 import qualified Control.Monad.Fail as MonadFail
 import MonadUtils
@@ -2597,7 +2603,9 @@ data TcSEnv
 
       -- The main work-list and the flattening worklist
       -- See Note [Work list priorities] and
-      tcs_worklist  :: IORef WorkList -- Current worklist
+      tcs_worklist  :: IORef WorkList, -- Current worklist
+
+      tcs_usage :: IORef UsageEnv
     }
 
 ---------------
@@ -2671,6 +2679,20 @@ bumpStepCountTcS = TcS $ \env -> do { let ref = tcs_count env
                                     ; n <- TcM.readTcRef ref
                                     ; TcM.writeTcRef ref (n+1) }
 
+getUsageTcS :: TcS UsageEnv
+getUsageTcS = TcS $ \env ->
+  do { let ref = tcs_usage env
+     ; TcM.readTcRef ref
+     }
+
+unitUETcS :: NamedThing n => n -> Mult -> TcS ()
+unitUETcS n m = TcS $ \env ->
+     TcM.updTcRef (tcs_usage env) (addUE (unitUE n m))
+
+emitBindingUsageTcS :: UsageEnv -> TcS ()
+emitBindingUsageTcS ue = TcS $ \env ->
+     TcM.updTcRef (tcs_usage env) (addUE ue)
+
 csTraceTcS :: SDoc -> TcS ()
 csTraceTcS doc
   = wrapTcS $ csTraceTcM (return doc)
@@ -2726,11 +2748,13 @@ runTcSWithEvBinds ev_binds_var tcs
        ; step_count <- TcM.newTcRef 0
        ; inert_var <- TcM.newTcRef emptyInert
        ; wl_var <- TcM.newTcRef emptyWorkList
+       ; usage <- TcM.newTcRef zeroUE
        ; let env = TcSEnv { tcs_ev_binds      = ev_binds_var
                           , tcs_unified       = unified_var
                           , tcs_count         = step_count
                           , tcs_inerts        = inert_var
-                          , tcs_worklist      = wl_var }
+                          , tcs_worklist      = wl_var
+                          , tcs_usage         = usage }
 
              -- Run the computation
        ; res <- unTcS tcs env
@@ -2788,19 +2812,23 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
   = TcS $ \ TcSEnv { tcs_unified       = unified_var
                    , tcs_inerts        = old_inert_var
                    , tcs_count         = count
+                   , tcs_usage         = old_usage_var -- TODO(csongor): I _think_ it's fine to not nest this
                    } ->
     do { inerts <- TcM.readTcRef old_inert_var
        ; let nest_inert = emptyInert
                             { inert_cans = inert_cans inerts
                             , inert_solved_dicts = inert_solved_dicts inerts }
                               -- See Note [Do not inherit the flat cache]
+       ; usage  <- TcM.readTcRef old_usage_var
+       ; new_usage_var <- TcM.newTcRef usage
        ; new_inert_var <- TcM.newTcRef nest_inert
        ; new_wl_var    <- TcM.newTcRef emptyWorkList
        ; let nest_env = TcSEnv { tcs_ev_binds      = ref
                                , tcs_unified       = unified_var
                                , tcs_count         = count
                                , tcs_inerts        = new_inert_var
-                               , tcs_worklist      = new_wl_var }
+                               , tcs_worklist      = new_wl_var
+                               , tcs_usage         = new_usage_var }
        ; res <- TcM.setTcLevel inner_tclvl $
                 thing_inside nest_env
 
@@ -3328,9 +3356,21 @@ getEvExpr (Fresh ctev) = ctEvExpr ctev
 getEvExpr (Cached evt) = evt
 
 setEvBind :: EvBind -> TcS ()
-setEvBind ev_bind
+setEvBind ev_bind@(EvBind { eb_rhs = EvExpr (Var rhs) })
   = do { evb <- getTcEvBindsVar
+       ; unitUETcS rhs One
+       ; ue <- getUsageTcS
+       ; let u = lookupUE ue rhs
+       ; case u of
+          MUsage actual_w@Omega -> wrapErrTcS $
+            TcM.addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr One) <+>
+                           text "of variable" <+> quotes (ppr rhs) <+>
+                           text "with actual multiplicity" <+> quotes (ppr actual_w)
+          _ -> return ()
+       ; traceTcS "setting ev bind" (ppr rhs $$ ppr ue)
        ; wrapTcS $ TcM.addTcEvBind evb ev_bind }
+setEvBind ev_bind
+  = pprPanic "setEvBind" (ppr ev_bind)
 
 -- | Mark variables as used filling a coercion hole
 useVars :: CoVarSet -> TcS ()

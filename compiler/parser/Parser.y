@@ -545,6 +545,7 @@ are the most common patterns, rewritten as regular expressions for clarity:
  '@'            { L _ ITat }
  '~'            { L _ ITtilde }
  '=>'           { L _ (ITdarrow _) }
+ '=>.'          { L _ (ITdlolly _) }
  '-'            { L _ ITminus }
  '!'            { L _ ITbang }
  '*'            { L _ (ITstar _) }
@@ -1393,10 +1394,19 @@ tycl_hdr :: { Located (Maybe (LHsContext GhcPs), LHsType GhcPs) }
         : context '=>' type         {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
                                        >> (return (sLL $1 $> (Just $1, $3)))
                                     }
+        | context '=>.' type        {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
+                                       >> (return (sLL $1 $> (Just $1, $3)))
+                                    }
         | type                      { sL1 $1 (Nothing, $1) }
 
 tycl_hdr_inst :: { Located ([AddAnn],(Maybe (LHsContext GhcPs), Maybe [LHsTyVarBndr GhcPs], LHsType GhcPs)) }
         : 'forall' tv_bndrs '.' context '=>' type   {% hintExplicitForall $1
+                                                       >> (addAnnotation (gl $4) (toUnicodeAnn AnnDarrow $5) (gl $5)
+                                                           >> return (sLL $1 $> ([mu AnnForall $1, mj AnnDot $3]
+                                                                                , (Just $4, Just $2, $6)))
+                                                          )
+                                                    }
+        | 'forall' tv_bndrs '.' context '=>.' type   {% hintExplicitForall $1
                                                        >> (addAnnotation (gl $4) (toUnicodeAnn AnnDarrow $5) (gl $5)
                                                            >> return (sLL $1 $> ([mu AnnForall $1, mj AnnDot $3]
                                                                                 , (Just $4, Just $2, $6)))
@@ -1407,6 +1417,9 @@ tycl_hdr_inst :: { Located ([AddAnn],(Maybe (LHsContext GhcPs), Maybe [LHsTyVarB
                                                                , (Nothing, Just $2, $4)))
                                        }
         | context '=>' type         {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
+                                       >> (return (sLL $1 $>([], (Just $1, Nothing, $3))))
+                                    }
+        | context '=>.' type        {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
                                        >> (return (sLL $1 $>([], (Just $1, Nothing, $3))))
                                     }
         | type                      { sL1 $1 ([], (Nothing, Nothing, $1)) }
@@ -1893,6 +1906,11 @@ ctype   :: { LHsType GhcPs }
                                             HsQualTy { hst_ctxt = $1
                                                      , hst_xqual = noExt
                                                      , hst_body = $3 }) }
+        | context '=>.' ctype         {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
+                                         >> return (sLL $1 $> $
+                                            HsQualTy { hst_ctxt = $1
+                                                     , hst_xqual = noExt
+                                                     , hst_body = $3 }) }
         | ipvar '::' type             {% ams (sLL $1 $> (HsIParamTy noExt $1 $3))
                                              [mu AnnDcolon $2] }
         | type                        { $1 }
@@ -1919,6 +1937,11 @@ ctypedoc :: { LHsType GhcPs }
                                                             , hst_body = $4 })
                                                 [mu AnnForall $1,fv_ann] }
         | context '=>' ctypedoc       {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
+                                         >> return (sLL $1 $> $
+                                            HsQualTy { hst_ctxt = $1
+                                                     , hst_xqual = noExt
+                                                     , hst_body = $3 }) }
+        | context '=>.' ctypedoc       {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
                                          >> return (sLL $1 $> $
                                             HsQualTy { hst_ctxt = $1
                                                      , hst_xqual = noExt
@@ -2308,6 +2331,14 @@ They must be kept identical except for their treatment of 'docprev'.
 
 constr :: { LConDecl GhcPs }
         : maybe_docnext forall constr_context '=>' constr_stuff
+                {% ams (let (con,details,doc_prev) = unLoc $5 in
+                  addConDoc (cL (comb4 $2 $3 $4 $5) (mkConDeclH98 con
+                                                       (snd $ unLoc $2)
+                                                       (Just $3)
+                                                       details))
+                            ($1 `mplus` doc_prev))
+                        (mu AnnDarrow $4:(fst $ unLoc $2)) }
+        | maybe_docnext forall constr_context '=>.' constr_stuff
                 {% ams (let (con,details,doc_prev) = unLoc $5 in
                   addConDoc (cL (comb4 $2 $3 $4 $5) (mkConDeclH98 con
                                                        (snd $ unLoc $2)
@@ -3857,6 +3888,7 @@ getStringLiteral l = StringLiteral (getSTRINGs l) (getSTRING l)
 isUnicode :: Located Token -> Bool
 isUnicode (dL->L _ (ITforall         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITdarrow         iu)) = iu == UnicodeSyntax
+isUnicode (dL->L _ (ITdlolly         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITdcolon         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITlarrow         iu)) = iu == UnicodeSyntax
 isUnicode (dL->L _ (ITrarrow         iu)) = iu == UnicodeSyntax

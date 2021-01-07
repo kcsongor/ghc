@@ -680,6 +680,7 @@ data Token
   | ITat
   | ITtilde
   | ITdarrow            IsUnicodeSyntax
+  | ITdlolly            IsUnicodeSyntax
   | ITminus
   | ITbang
   | ITstar              IsUnicodeSyntax
@@ -889,6 +890,7 @@ reservedSymsFM = listToUFM $
        ,("@",   ITat,                       NormalSyntax,  0 )
        ,("~",   ITtilde,                    NormalSyntax,  0 )
        ,("=>",  ITdarrow NormalSyntax,      NormalSyntax,  0 )
+       ,("=>.", ITdlolly NormalSyntax,      NormalSyntax,  0 )
        ,("-",   ITminus,                    NormalSyntax,  0 )
        ,("!",   ITbang,                     NormalSyntax,  0 )
 
