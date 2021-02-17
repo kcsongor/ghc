@@ -1108,8 +1108,8 @@ checkForExistence clsInst mb_inst_tys = do
   allowedSimple :: Ct -> Bool
   allowedSimple ct = isSatisfiablePred (ctPred ct)
 
-  solvedImplics :: Bag Implication -> Bool
-  solvedImplics impls = allBag (isSolvedStatus . ic_status) impls
+  solvedImplics :: Bag (With Implication) -> Bool
+  solvedImplics impls = allBag (allWith (isSolvedStatus . ic_status)) impls
 
   -- Stricter version of isTyVarClassPred that requires all TyConApps to have at least
   -- one argument or for the head to be a TyVar. The reason is that we want to ensure

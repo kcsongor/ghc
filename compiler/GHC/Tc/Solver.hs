@@ -248,7 +248,9 @@ floatKindEqualities wc = float_wc emptyVarSet wc
                               , wc_holes = holes })
       | all is_floatable simples
       = do { (inner_simples, inner_holes)
-                <- flatMapBagPairM (float_implic trapping_tvs) implics
+                -- I think we can flatten this bag here, as only equalities are
+                -- floated, which are unrestricted
+                <- flatMapBagPairM (float_implic trapping_tvs) (concatWith implics)
            ; return ( simples `unionBags` inner_simples
                     , holes `unionBags` inner_holes) }
       | otherwise
@@ -2304,7 +2306,7 @@ approximateWC float_past_equalities wc
     float_wc :: TcTyCoVarSet -> WantedConstraints -> Cts
     float_wc trapping_tvs (WC { wc_simple = simples, wc_impl = implics })
       = filterBag (is_floatable trapping_tvs) simples `unionBags`
-        concatMapBag (float_implic trapping_tvs) implics
+        concatMapBag (float_implic trapping_tvs) (concatWith implics) -- TODO(csongor): this is dodgy
     float_implic :: TcTyCoVarSet -> Implication -> Cts
     float_implic trapping_tvs imp
       | float_past_equalities || ic_given_eqs imp /= MaybeGivenEqs

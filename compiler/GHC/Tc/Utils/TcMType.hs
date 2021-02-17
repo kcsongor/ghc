@@ -16,6 +16,9 @@
 module GHC.Tc.Utils.TcMType (
   TcTyVar, TcKind, TcType, TcTauType, TcThetaType, TcTyVarSet,
 
+  -- TODO(csongor): move me
+  withWanteds,
+
   --------------------------------
   -- Creating new mutable type variables
   newFlexiTyVar,
@@ -319,6 +322,24 @@ newImplication
        warn_inaccessible <- woptM Opt_WarnInaccessibleCode
        return (implicationPrototype { ic_env = env
                                     , ic_warn_inaccessible = warn_inaccessible })
+
+withWanteds :: WantedConstraints -> WantedConstraints -> TcM WantedConstraints
+withWanteds w1 w2
+  = do bs <- traverse mk_implic [w1, w2]
+       return emptyWC { wc_impl = unionManyBags bs }
+
+  where
+   mk_implic :: WantedConstraints -> TcM (Bag (With Implication))
+   mk_implic wanted = do
+     env <- getLclEnv
+     ev_binds_var <- newNoTcEvBinds
+     let tclvl = getLclEnvTcLevel env
+     implic <- newImplication
+     let implic' = implic { ic_tclvl = tclvl
+                          , ic_wanted = wanted
+                          , ic_binds = ev_binds_var
+                          , ic_info = UnkSkol }
+     return (unitBag (unitWith implic'))
 
 {-
 ************************************************************************

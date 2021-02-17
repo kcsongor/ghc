@@ -909,7 +909,7 @@ checkConstraints skol_info skol_tvs given thing_inside
          then do { (tclvl, wanted, result) <- pushLevelAndCaptureConstraints thing_inside
                  ; (implics, ev_binds) <- buildImplicationFor tclvl skol_info skol_tvs given wanted
                  ; traceTc "checkConstraints" (ppr tclvl $$ ppr skol_tvs)
-                 ; emitImplications (mapBag unitWith implics)
+                 ; emitImplications implics
                  ; return (ev_binds, result) }
 
          else -- Fast path.  We check every function argument with tcCheckPolyExpr,
@@ -997,7 +997,7 @@ alwaysBuildImplication _                  = False
 
 buildImplicationFor :: TcLevel -> SkolemInfo -> [TcTyVar]
                    -> [EvVar] -> WantedConstraints
-                   -> TcM (Bag Implication, TcEvBinds)
+                   -> TcM (Bag (With Implication), TcEvBinds)
 buildImplicationFor tclvl skol_info skol_tvs given wanted
   | isEmptyWC wanted && null given
              -- Optimisation : if there are no wanteds, and no givens
@@ -1021,7 +1021,7 @@ buildImplicationFor tclvl skol_info skol_tvs given wanted
                               , ic_binds  = ev_binds_var
                               , ic_info   = skol_info }
 
-       ; return (unitBag implic', TcEvBinds ev_binds_var) }
+       ; return (unitBag (unitWith implic'), TcEvBinds ev_binds_var) }
 
 {- Note [When to build an implication]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

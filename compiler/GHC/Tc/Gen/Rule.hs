@@ -466,7 +466,7 @@ getRuleQuantCts wc
         , emptyWC { wc_simple = simple_no, wc_impl = implics_no, wc_holes = holes })
      where
         (simple_yes, simple_no) = partitionBag (rule_quant_ct skol_tvs) simples
-        (implic_yes, implics_no) = mapAccumBagL (float_implic skol_tvs)
+        (implic_yes, implics_no) = mapAccumBagL (mapAccumWithL (float_implic skol_tvs))
                                                 emptyBag implics
 
     float_implic :: TcTyCoVarSet -> Cts -> Implication -> (Cts, Implication)

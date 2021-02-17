@@ -50,8 +50,9 @@ module GHC.Tc.Types.Constraint (
         setCtLocOrigin, updateCtLocOrigin, setCtLocEnv, setCtLocSpan,
         pprCtLoc,
 
-        With(..), unitWith, mapWith, mapWithM, anyWith, allWith, catWithMaybes,
-        mapAndUnzipWithM, isEmptyWith, necatWithMaybes, filterWith,
+        With(..), unitWith, mapWith, mapWithM, mapAccumWithL, anyWith, allWith, catWithMaybes,
+        mapAndUnzipWithM, isEmptyWith, necatWithMaybes, filterWith, unionWiths,
+        concatWith,
 
         -- CtEvidence
         CtEvidence(..), TcEvDest(..),
@@ -108,6 +109,7 @@ import GHC.Utils.Panic
 
 import Control.Monad ( msum )
 import qualified Data.Semigroup ( (<>) )
+import Data.Coerce (coerce)
 
 {-
 ************************************************************************
@@ -947,6 +949,9 @@ mapWith f (With as) = With $ mapBag f as
 mapWithM :: Monad m => (a -> m b) -> With a -> m (With b)
 mapWithM f (With as) = With <$> mapBagM f as
 
+mapAccumWithL :: (acc -> x -> (acc, y)) -> acc -> With x -> (acc, With y)
+mapAccumWithL f s (With as) = With <$> mapAccumBagL f s as
+
 filterWith :: (a -> Bool) -> With a -> With a
 filterWith p (With as) = With $ filterBag p as
 
@@ -966,6 +971,9 @@ mapAndUnzipWithM :: Monad m => (a -> m (b,c)) -> With a -> m (With b, With c)
 mapAndUnzipWithM f (With as)
   = do { (ls, rs) <- mapAndUnzipBagM f as
        ; return (With ls, With rs) }
+
+concatWith :: Bag (With a) -> Bag a
+concatWith withs = concatBag (coerce withs)
 
 -- /Linear contraints stuff --
 

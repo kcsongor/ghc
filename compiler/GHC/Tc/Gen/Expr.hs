@@ -493,6 +493,7 @@ tcExpr (HsCase x scrut matches) res_ty
           -- This design choice is discussed in #17790
         ; (scrut', scrut_ty) <- tcScalingUsage mult $ tcInferRho scrut
 
+       -- TODO(csongor): capture constraints and re-emit using With (see the HsIf case)
         ; traceTc "HsCase" (ppr scrut_ty)
         ; matches' <- tcMatchesCase match_ctxt (Scaled mult scrut_ty) matches res_ty
         ; return (HsCase x scrut' matches') }
@@ -521,8 +522,11 @@ tcExpr (HsIf x pred b1 b2) res_ty
        -- (2): Use tag2 One
        -- (3): final_mult?x ~ Sup tag1 tag2
        -- final_mult?x ~ Omega
-       ; (u1,b1') <- tcCollectingUsage $ tcMonoExpr b1 res_ty
-       ; (u2,b2') <- tcCollectingUsage $ tcMonoExpr b2 res_ty
+       -- Note: the above is outdated!
+       ; (u1,(b1', c1)) <- tcCollectingUsage $ captureConstraints (tcMonoExpr b1 res_ty)
+       ; (u2,(b2', c2)) <- tcCollectingUsage $ captureConstraints (tcMonoExpr b2 res_ty)
+       ; wanted <- withWanteds c1 c2
+       ; emitConstraints wanted
        ; tcEmitBindingUsage (supUE u1 u2)
        ; return (HsIf x pred' b1' b2') }
 

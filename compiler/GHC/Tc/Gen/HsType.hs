@@ -427,7 +427,7 @@ tcHsSigType ctxt sig_ty
        -- Float out constraints, failing fast if not possible
        -- See Note [Failure in local type signatures] in GHC.Tc.Solver
        ; traceTc "tcHsSigType 2" (ppr implic)
-       ; simplifyAndEmitFlatConstraints (mkImplicWC (unitBag implic))
+       ; simplifyAndEmitFlatConstraints (mkImplicWC (unitBag (unitWith implic)))
 
        ; ty <- zonkTcType ty
        ; checkValidType ctxt ty

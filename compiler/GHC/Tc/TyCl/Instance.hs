@@ -1394,7 +1394,7 @@ Notice that
 tcSuperClasses :: DFunId -> Class -> [TcTyVar] -> [EvVar] -> [TcType]
                -> TcEvBinds
                -> TcThetaType
-               -> TcM ([EvVar], LHsBinds GhcTc, Bag Implication)
+               -> TcM ([EvVar], LHsBinds GhcTc, Bag (With Implication))
 -- Make a new top-level function binding for each superclass,
 -- something like
 --    $Ordp1 :: forall a. Ord a => Eq [a]
@@ -1432,7 +1432,7 @@ tcSuperClasses dfun_id cls tyvars dfun_evs inst_tys dfun_ev_binds sc_theta
                                  , abs_ev_binds = [dfun_ev_binds, local_ev_binds]
                                  , abs_binds    = emptyBag
                                  , abs_sig      = False }
-           ; return (sc_top_id, L loc bind, sc_implic) }
+           ; return (sc_top_id, L loc bind, unitWith sc_implic) }
 
 -------------------
 checkInstConstraints :: TcM result
@@ -1654,7 +1654,7 @@ tcMethods :: DFunId -> Class
           -> ([Located TcSpecPrag], TcPragEnv)
           -> [ClassOpItem]
           -> InstBindings GhcRn
-          -> TcM ([Id], LHsBinds GhcTc, Bag Implication)
+          -> TcM ([Id], LHsBinds GhcTc, Bag (With Implication))
         -- The returned inst_meth_ids all have types starting
         --      forall tvs. theta => ...
 tcMethods dfun_id clas tyvars dfun_ev_vars inst_tys
@@ -1672,7 +1672,7 @@ tcMethods dfun_id clas tyvars dfun_ev_vars inst_tys
        ; (ids, binds, mb_implics) <- set_exts exts $
                                      unset_warnings_deriving $
                                      mapAndUnzip3M tc_item op_items
-       ; return (ids, listToBag binds, listToBag (catMaybes mb_implics)) }
+       ; return (ids, listToBag binds, listToBag (map unitWith (catMaybes mb_implics))) }
   where
     set_exts :: [LangExt.Extension] -> TcM a -> TcM a
     set_exts es thing = foldr setXOptM thing es

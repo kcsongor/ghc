@@ -974,4 +974,4 @@ tcCheckHoleFit (TypedHole {..}) hole_ty ty = discardErrs $
                      -> WantedConstraints  -- The WC constraints to put implic.
                      -> WantedConstraints  -- The new constraints.
        setWCAndBinds binds imp wc
-         = mkImplicWC $ unitBag $ imp { ic_wanted = wc , ic_binds = binds }
+         = mkImplicWC $ unitBag $ unitWith $ imp { ic_wanted = wc , ic_binds = binds }
