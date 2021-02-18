@@ -926,7 +926,11 @@ data WantedConstraints
 -- Linear contraints stuff --
 
 newtype With a = With (Bag a)
-  deriving (Outputable, Functor, Foldable)
+  deriving (Functor, Foldable)
+
+instance Outputable a => Outputable (With a) where
+  ppr (With x) = text "With: " <> ppr x
+
 
 unitWith :: a -> With a
 unitWith a = With $ unitBag a

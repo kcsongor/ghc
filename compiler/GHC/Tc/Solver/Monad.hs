@@ -33,7 +33,7 @@ module GHC.Tc.Solver.Monad (
     wrapErrTcS, wrapWarnTcS,
     resetUnificationFlag, setUnificationFlag,
 
-    collectUsageTcS, emitBindingUsageTcS,
+    getUsageTcS, collectUsageTcS, emitBindingUsageTcS,
 
     -- Evidence creation and transformation
     MaybeNew(..), freshGoals, isFresh, getEvExpr,
@@ -3535,17 +3535,19 @@ setEvBind ev_bind@(EvBind { eb_rhs = EvExpr (Var rhs) })
   = do { evb <- getTcEvBindsVar
        ; unitUETcS rhs One
        ; ue <- getUsageTcS
-       ; let u = lookupUE ue rhs
-       ; case u of
-          MUsage actual_w@Many -> wrapErrTcS $
-            TcM.addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr One) <+>
-                           text "of variable" <+> quotes (ppr rhs) <+>
-                           text "with actual multiplicity" <+> quotes (ppr actual_w)
-          _ -> return ()
+       -- ; let u = lookupUE ue rhs
+       -- ; case u of
+       --    MUsage actual_w@Many -> wrapErrTcS $
+       --      TcM.addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr One) <+>
+       --                     text "of variable" <+> quotes (ppr rhs) <+>
+       --                     text "with actual multiplicity" <+> quotes (ppr actual_w)
+       --    _ -> return ()
        ; traceTcS "setting ev bind" (ppr rhs $$ ppr ue)
        ; wrapTcS $ TcM.addTcEvBind evb ev_bind }
 setEvBind ev_bind
-  = pprPanic "setEvBind" (ppr ev_bind)
+  = do { evb <- getTcEvBindsVar
+       ; wrapTcS $ TcM.addTcEvBind evb ev_bind
+       }
 
 -- | Mark variables as used filling a coercion hole
 useVars :: CoVarSet -> TcS ()

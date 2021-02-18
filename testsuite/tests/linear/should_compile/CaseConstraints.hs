@@ -11,7 +11,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LinearTypes #-}
-{-# LANGUAGE RebindableSyntax #-}
 
 -- A function of a linear implicit argument, uses it twice (like return (?x, ?x)). Throws a type error.
 module Ex2 where
@@ -25,12 +24,5 @@ import GHC.TypeLits
 import Prelude hiding ((>>=), return)
 import Unsafe.Coerce
 
-foo :: (?kakimaki :: Int) => Int
-foo = (10 :: Int) + ?kakimaki -- + let ?kakimaki = (20 :: Int) in ?kakimaki
-
-asd :: Bool ->. Int
-asd x = case x of
-  True -> 10
-  False -> 10
--- asd True = 10
--- asd False = 10
+bar :: (?foo :: Int) => Bool -> Int
+bar x = if x then ?foo else ?foo + ?foo

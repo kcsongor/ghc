@@ -323,22 +323,23 @@ newImplication
        return (implicationPrototype { ic_env = env
                                     , ic_warn_inaccessible = warn_inaccessible })
 
-withWanteds :: WantedConstraints -> WantedConstraints -> TcM WantedConstraints
+withWanteds :: WantedConstraints -> WantedConstraints -> TcM (WantedConstraints, EvBindsVar)
 withWanteds w1 w2
-  = do bs <- traverse mk_implic [w1, w2]
-       return emptyWC { wc_impl = unionManyBags bs }
+  = do ev_binds_var <- newTcEvBinds
+       bs <- traverse (mk_implic ev_binds_var) [w1, w2]
+       traceTc "withWanteds:" (ppr bs)
+       return (emptyWC { wc_impl = unionManyBags bs }, ev_binds_var)
 
   where
-   mk_implic :: WantedConstraints -> TcM (Bag (With Implication))
-   mk_implic wanted = do
+   mk_implic :: EvBindsVar -> WantedConstraints -> TcM (Bag (With Implication))
+   mk_implic evbinds wanted = do
      env <- getLclEnv
-     ev_binds_var <- newNoTcEvBinds
      let tclvl = getLclEnvTcLevel env
      implic <- newImplication
      let implic' = implic { ic_tclvl = tclvl
                           , ic_wanted = wanted
-                          , ic_binds = ev_binds_var
-                          , ic_info = UnkSkol }
+                          , ic_binds = evbinds
+                          , ic_info = RuntimeUnkSkol } -- TODO(csongor): does this matter?
      return (unitBag (unitWith implic'))
 
 {-

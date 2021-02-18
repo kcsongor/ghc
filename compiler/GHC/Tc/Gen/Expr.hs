@@ -503,32 +503,12 @@ tcExpr (HsCase x scrut matches) res_ty
 
 tcExpr (HsIf x pred b1 b2) res_ty
   = do { pred'    <- tcCheckMonoExpr pred boolTy
-       -- TODO(csongor): Generate different constraint tags for the
-       -- two branches here (local env).
-       -- When done with that, emit a constraint that the two tags agree.
-
-       -- How to handle this?: linear_fun ?x
-       -- When checking arguments (tcArg), the environment is
-       -- scaled. I think we simply emit Use constraint here with the
-       -- scale as the amount.
-       --
-       -- foo b = if b
-       -- then ?x + ?x         [tag1]
-       -- else linear_fun ?x   [tag2]
-       --
-       -- (1) (a): Use tag1 One
-       -- (1) (b): Use tag1 One
-       --          ^^^ these interact with addition => Use tag1 Omega
-       -- (2): Use tag2 One
-       -- (3): final_mult?x ~ Sup tag1 tag2
-       -- final_mult?x ~ Omega
-       -- Note: the above is outdated!
        ; (u1,(b1', c1)) <- tcCollectingUsage $ captureConstraints (tcMonoExpr b1 res_ty)
        ; (u2,(b2', c2)) <- tcCollectingUsage $ captureConstraints (tcMonoExpr b2 res_ty)
-       ; wanted <- withWanteds c1 c2
+       ; (wanted, evbinds) <- withWanteds c1 c2
        ; emitConstraints wanted
        ; tcEmitBindingUsage (supUE u1 u2)
-       ; return (HsIf x pred' b1' b2') }
+       ; return (mkHsWrap (mkWpLet (TcEvBinds evbinds)) (HsIf x pred' b1' b2')) }
 
 tcExpr (HsMultiIf _ alts) res_ty
   = do { alts' <- mapM (wrapLocM $ tcGRHS match_ctxt res_ty) alts

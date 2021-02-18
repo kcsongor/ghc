@@ -1700,9 +1700,11 @@ solveWanteds wc@(WC { wc_holes = holes })
 
        ; ev_binds_var <- getTcEvBindsVar
        ; bb <- TcS.getTcEvBindsMap ev_binds_var
+       ; usage <- TcS.getUsageTcS
        ; traceTcS "solveWanteds }" $
                  vcat [ text "final wc =" <+> ppr final_wc
-                      , text "current evbinds  =" <+> ppr (evBindMapBinds bb) ]
+                      , text "current evbinds  =" <+> ppr (evBindMapBinds bb)
+                      , text "final usage env =" <+> ppr usage]
 
        ; return final_wc }
 
@@ -1820,7 +1822,9 @@ solveNestedImplications implics
     solveWith :: With Implication -> TcS (Maybe (With Implication))
     solveWith impls
       = do { (ues, remaining) <- mapAndUnzipWithM (collectUsageTcS . solveImplication) impls
-           ; emitBindingUsageTcS (supUEs ues)
+           ; let usage = supUEs ues
+           ; emitBindingUsageTcS usage
+           ; traceTcS "solveWith:" (ppr usage)
            ; return $ necatWithMaybes remaining
              -- TODO: I'm not sure that dropping solved constraint is the "right
              -- thing to do" for With. I'm not sure what I'm supposed to do with
