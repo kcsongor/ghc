@@ -20,6 +20,7 @@ module GHC.Tc.Types.Constraint (
         ctEvidence, ctLoc, setCtLoc, ctPred, ctFlavour, ctEqRel, ctOrigin,
         ctEvId, mkTcEqPredLikeEv,
         mkNonCanonical, mkNonCanonicalCt, mkGivens,
+        mkScaledNonCanonical,
         mkIrredCt,
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvExpr, ctEvTerm, ctEvCoercion, ctEvEvId,
@@ -399,21 +400,24 @@ Type-level holes have no evidence at all.
 -}
 
 mkNonCanonical :: CtEvidence -> Ct
-mkNonCanonical ev = CNonCanonical { cc_ev = ev, cc_mult = Many }
+mkNonCanonical = mkScaledNonCanonical Many
+
+mkScaledNonCanonical :: Mult -> CtEvidence -> Ct
+mkScaledNonCanonical w ev = CNonCanonical { cc_ev = ev, cc_mult = w }
 
 mkNonCanonicalCt :: Ct -> Ct
-mkNonCanonicalCt ct = CNonCanonical { cc_ev = cc_ev ct, cc_mult = Many }
+mkNonCanonicalCt ct = CNonCanonical { cc_ev = cc_ev ct, cc_mult = cc_mult ct }
 
 mkIrredCt :: CtIrredStatus -> CtEvidence -> Ct
 mkIrredCt status ev = CIrredCan { cc_ev = ev, cc_status = status, cc_mult = Many }
 
-mkGivens :: CtLoc -> [EvId] -> [Ct]
+mkGivens :: CtLoc -> [Scaled EvId] -> [Ct]
 mkGivens loc ev_ids
   = map mk ev_ids
   where
-    mk ev_id = mkNonCanonical (CtGiven { ctev_evar = ev_id
-                                       , ctev_pred = evVarPred ev_id
-                                       , ctev_loc = loc })
+    mk (Scaled w ev_id) = mkScaledNonCanonical w (CtGiven { ctev_evar = ev_id
+                                                          , ctev_pred = evVarPred ev_id
+                                                          , ctev_loc = loc })
 
 ctEvidence :: Ct -> CtEvidence
 ctEvidence (CQuantCan (QCI { qci_ev = ev })) = ev
@@ -576,7 +580,7 @@ tyCoFVsOfImplic (Implic { ic_skols = skols
   = emptyFV
   | otherwise
   = tyCoFVsVarBndrs skols  $
-    tyCoFVsVarBndrs givens $
+    tyCoFVsVarBndrs (map scaledThing givens) $
     tyCoFVsOfWC wanted
 
 tyCoFVsOfHole :: Hole -> FV
@@ -1004,9 +1008,9 @@ emptyWC = WC { wc_simple = emptyBag
              , wc_impl   = emptyBag
              , wc_holes  = emptyBag }
 
-mkSimpleWC :: [CtEvidence] -> WantedConstraints
+mkSimpleWC :: [Scaled CtEvidence] -> WantedConstraints
 mkSimpleWC cts
-  = emptyWC { wc_simple = listToBag (map mkNonCanonical cts) }
+  = emptyWC { wc_simple = listToBag (map (\(Scaled w ct) -> mkScaledNonCanonical w ct) cts) }
 
 mkImplicWC :: Bag (With Implication) -> WantedConstraints
 mkImplicWC implic
@@ -1023,6 +1027,7 @@ isSolvedWC :: WantedConstraints -> Bool
 isSolvedWC WC {wc_simple = wc_simple, wc_impl = wc_impl, wc_holes = holes} =
   isEmptyBag wc_simple && allBag (allWith (isSolvedStatus . ic_status)) wc_impl && isEmptyBag holes
 
+-- TODO(csongor): multiply constraints here
 andWC :: WantedConstraints -> WantedConstraints -> WantedConstraints
 andWC (WC { wc_simple = f1, wc_impl = i1, wc_holes = h1 })
       (WC { wc_simple = f2, wc_impl = i2, wc_holes = h2 })
@@ -1195,7 +1200,7 @@ data Implication
       ic_info  :: SkolemInfo,    -- See Note [Skolems in an implication]
                                  -- See Note [Shadowing in a constraint]
 
-      ic_given  :: [EvVar],      -- Given evidence variables
+      ic_given  :: [Scaled EvVar],      -- Given evidence variables
                                  --   (order does not matter)
                                  -- See Invariant (GivenInv) in GHC.Tc.Utils.TcType
 
@@ -1508,19 +1513,19 @@ never see it.
 ************************************************************************
 -}
 
-pprEvVars :: [EvVar] -> SDoc    -- Print with their types
+pprEvVars :: [Scaled EvVar] -> SDoc    -- Print with their types
 pprEvVars ev_vars = vcat (map pprEvVarWithType ev_vars)
 
 pprEvVarTheta :: [EvVar] -> SDoc
-pprEvVarTheta ev_vars = pprTheta (map evVarPred ev_vars)
+pprEvVarTheta ev_vars = pprTheta (map (unrestricted . evVarPred) ev_vars)
 
-pprEvVarWithType :: EvVar -> SDoc
-pprEvVarWithType v = ppr v <+> dcolon <+> pprType (evVarPred v)
+pprEvVarWithType :: Scaled EvVar -> SDoc
+pprEvVarWithType (Scaled w v) = ppr v <+> dcolon <+> pprType (evVarPred v) <+> ppr w
 
 
 
 wrapType :: Type -> [TyVar] -> [PredType] -> Type
-wrapType ty skols givens = mkSpecForAllTys skols $ mkPhiTy givens ty
+wrapType ty skols givens = mkSpecForAllTys skols $ mkPhiTy (map unrestricted givens) ty
 
 
 {-

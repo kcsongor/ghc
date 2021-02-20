@@ -715,7 +715,8 @@ substScaledTysUnchecked subst tys
 -- The substitution has to satisfy the invariants described in
 -- Note [The substitution invariant].
 substTheta :: HasCallStack => TCvSubst -> ThetaType -> ThetaType
-substTheta = substTys
+substTheta subst theta = zipWith Scaled ws (substTys subst ts)
+  where (ws, ts) = unzip (map (\(Scaled w t) -> (w, t)) theta)
 
 -- | Substitute within a 'ThetaType' disabling the sanity checks.
 -- The problems that the sanity checks in substTys catch are described in
@@ -723,7 +724,8 @@ substTheta = substTys
 -- The goal of #11371 is to migrate all the calls of substThetaUnchecked to
 -- substTheta and remove this function. Please don't use in new code.
 substThetaUnchecked :: TCvSubst -> ThetaType -> ThetaType
-substThetaUnchecked = substTysUnchecked
+substThetaUnchecked subst theta = zipWith Scaled ws (substTysUnchecked subst ts)
+  where (ws, ts) = unzip (map (\(Scaled w t) -> (w, t)) theta)
 
 
 subst_ty :: TCvSubst -> Type -> Type

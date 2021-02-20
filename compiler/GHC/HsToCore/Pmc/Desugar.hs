@@ -188,7 +188,7 @@ desugarPat x pat = case pat of
            , cpt_dicts   = dicts
            }
          } ->
-    desugarConPatOut x con arg_tys ex_tvs dicts ps
+    desugarConPatOut x con arg_tys ex_tvs (map scaledThing dicts) ps
 
   NPat ty (L _ olit) mb_neg _ -> do
     -- See Note [Literal short cut] in "GHC.HsToCore.Match.Literal"

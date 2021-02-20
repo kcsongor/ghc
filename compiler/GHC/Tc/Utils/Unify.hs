@@ -898,7 +898,7 @@ tcSkolemiseET ctxt (Check ty) thing_inside
 
 checkConstraints :: SkolemInfo
                  -> [TcTyVar]           -- Skolems
-                 -> [EvVar]             -- Given
+                 -> [Scaled EvVar]             -- Given
                  -> TcM result
                  -> TcM (TcEvBinds, result)
 
@@ -958,7 +958,7 @@ buildTvImplication skol_info skol_tvs tclvl wanted
                         , ic_binds     = ev_binds
                         , ic_info      = skol_info }) }
 
-implicationNeeded :: SkolemInfo -> [TcTyVar] -> [EvVar] -> TcM Bool
+implicationNeeded :: SkolemInfo -> [TcTyVar] -> [Scaled EvVar] -> TcM Bool
 -- See Note [When to build an implication]
 implicationNeeded skol_info skol_tvs given
   | null skol_tvs
@@ -996,7 +996,7 @@ alwaysBuildImplication _                  = False
 -}
 
 buildImplicationFor :: TcLevel -> SkolemInfo -> [TcTyVar]
-                   -> [EvVar] -> WantedConstraints
+                   -> [Scaled EvVar] -> WantedConstraints
                    -> TcM (Bag (With Implication), TcEvBinds)
 buildImplicationFor tclvl skol_info skol_tvs given wanted
   | isEmptyWC wanted && null given

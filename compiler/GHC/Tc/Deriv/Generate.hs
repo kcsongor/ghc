@@ -2203,7 +2203,7 @@ genAuxBindSpecSig :: SrcSpan -> AuxBindSpec -> LHsSigWcType GhcPs
 genAuxBindSpecSig loc spec = case spec of
   DerivCon2Tag tycon _
     -> mk_sig $ L loc $ XHsType $
-       mkSpecSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
+       mkSpecSigmaTy (tyConTyVars tycon) (map unrestricted (tyConStupidTheta tycon)) $
        mkParentType tycon `mkVisFunTyMany` intPrimTy
   DerivTag2Con tycon _
     -> mk_sig $ L loc $

@@ -2486,6 +2486,7 @@ lookupFamAppInert fam_tc tys
       = Just (ctEvCoercion ctev, rhs, ctEvFlavourRole ctev)
       | otherwise = Nothing
 
+-- TODO(csongor): to handle ambiguity, we will have to look up a scaled thing potentially
 lookupInInerts :: CtLoc -> TcPredType -> TcS (Maybe CtEvidence)
 -- Is this exact predicate type cached in the solved or canonicals of the InertSet?
 lookupInInerts loc pty
@@ -3111,7 +3112,7 @@ nestTcS (TcS thing_inside)
 
 emitImplicationTcS :: TcLevel -> SkolemInfo
                    -> [TcTyVar]        -- Skolems
-                   -> [EvVar]          -- Givens
+                   -> [Scaled EvVar]          -- Givens
                    -> Cts              -- Wanteds
                    -> TcS TcEvBinds
 -- Add an implication to the TcS monad work-list
@@ -3616,27 +3617,27 @@ newTcEvBinds = wrapTcS TcM.newTcEvBinds
 newNoTcEvBinds :: TcS EvBindsVar
 newNoTcEvBinds = wrapTcS TcM.newNoTcEvBinds
 
-newEvVar :: TcPredType -> TcS EvVar
+newEvVar :: Scaled TcPredType -> TcS (Scaled EvVar)
 newEvVar pred = wrapTcS (TcM.newEvVar pred)
 
-newGivenEvVar :: CtLoc -> (TcPredType, EvTerm) -> TcS CtEvidence
+newGivenEvVar :: CtLoc -> (Scaled TcPredType, EvTerm) -> TcS CtEvidence
 -- Make a new variable of the given PredType,
 -- immediately bind it to the given term
 -- and return its CtEvidence
 -- See Note [Bind new Givens immediately] in GHC.Tc.Types.Constraint
 newGivenEvVar loc (pred, rhs)
   = do { new_ev <- newBoundEvVarId pred rhs
-       ; return (CtGiven { ctev_pred = pred, ctev_evar = new_ev, ctev_loc = loc }) }
+       ; return (CtGiven { ctev_pred = Rep.scaledThing pred, ctev_evar = new_ev, ctev_loc = loc }) }
 
 -- | Make a new 'Id' of the given type, bound (in the monad's EvBinds) to the
 -- given term
-newBoundEvVarId :: TcPredType -> EvTerm -> TcS EvVar
+newBoundEvVarId :: Scaled TcPredType -> EvTerm -> TcS EvVar
 newBoundEvVarId pred rhs
-  = do { new_ev <- newEvVar pred
+  = do { new_ev <- Rep.scaledThing <$> newEvVar pred
        ; setEvBind (mkGivenEvBind new_ev rhs)
        ; return new_ev }
 
-newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]
+newGivenEvVars :: CtLoc -> [(Scaled TcPredType, EvTerm)] -> TcS [CtEvidence]
 newGivenEvVars loc pts = mapM (newGivenEvVar loc) pts
 
 emitNewWantedEq :: CtLoc -> Role -> TcType -> TcType -> TcS Coercion
@@ -3665,26 +3666,26 @@ newWantedEq_SI si loc role ty1 ty2
     pty = mkPrimEqPredRole role ty1 ty2
 
 -- no equalities here. Use newWantedEq instead
-newWantedEvVarNC :: CtLoc -> TcPredType -> TcS CtEvidence
+newWantedEvVarNC :: CtLoc -> Scaled TcPredType -> TcS CtEvidence
 newWantedEvVarNC = newWantedEvVarNC_SI WDeriv
 
-newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> TcPredType -> TcS CtEvidence
+newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> Scaled TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
 newWantedEvVarNC_SI si loc pty
   = do { new_ev <- newEvVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
-       ; return (CtWanted { ctev_pred = pty, ctev_dest = EvVarDest new_ev
+       ; return (CtWanted { ctev_pred = Rep.scaledThing pty, ctev_dest = EvVarDest (Rep.scaledThing new_ev)
                           , ctev_nosh = si
                           , ctev_loc = loc })}
 
-newWantedEvVar :: CtLoc -> TcPredType -> TcS MaybeNew
+newWantedEvVar :: CtLoc -> Scaled TcPredType -> TcS MaybeNew
 newWantedEvVar = newWantedEvVar_SI WDeriv
 
-newWantedEvVar_SI :: ShadowInfo -> CtLoc -> TcPredType -> TcS MaybeNew
+newWantedEvVar_SI :: ShadowInfo -> CtLoc -> Scaled TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
 newWantedEvVar_SI si loc pty
-  = do { mb_ct <- lookupInInerts loc pty
+  = do { mb_ct <- lookupInInerts loc (Rep.scaledThing pty)
        ; case mb_ct of
             Just ctev
               | not (isDerived ctev)
@@ -3693,22 +3694,22 @@ newWantedEvVar_SI si loc pty
             _ -> do { ctev <- newWantedEvVarNC_SI si loc pty
                     ; return (Fresh ctev) } }
 
-newWanted :: CtLoc -> PredType -> TcS MaybeNew
+newWanted :: CtLoc -> Scaled PredType -> TcS MaybeNew
 -- Deals with both equalities and non equalities. Tries to look
 -- up non-equalities in the cache
 newWanted = newWanted_SI WDeriv
 
-newWanted_SI :: ShadowInfo -> CtLoc -> PredType -> TcS MaybeNew
+newWanted_SI :: ShadowInfo -> CtLoc -> Scaled PredType -> TcS MaybeNew
 newWanted_SI si loc pty
-  | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
+  | Just (role, ty1, ty2) <- getEqPredTys_maybe (Rep.scaledThing pty)
   = Fresh . fst <$> newWantedEq_SI si loc role ty1 ty2
   | otherwise
   = newWantedEvVar_SI si loc pty
 
 -- deals with both equalities and non equalities. Doesn't do any cache lookups.
-newWantedNC :: CtLoc -> PredType -> TcS CtEvidence
+newWantedNC :: CtLoc -> Scaled PredType -> TcS CtEvidence
 newWantedNC loc pty
-  | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
+  | Just (role, ty1, ty2) <- getEqPredTys_maybe (Rep.scaledThing pty)
   = fst <$> newWantedEq loc role ty1 ty2
   | otherwise
   = newWantedEvVarNC loc pty
@@ -3807,7 +3808,7 @@ breakTyVarCycle loc = go
                  given_pred = mkHeteroPrimEqPred fun_app_kind fun_app_kind
                                                  fun_app new_ty
                  given_term = evCoercion $ mkNomReflCo new_ty  -- See Detail (4) of Note
-           ; new_given <- newGivenEvVar loc (given_pred, given_term)
+           ; new_given <- newGivenEvVar loc (unrestricted given_pred, given_term)
            ; traceTcS "breakTyVarCycle replacing type family" (ppr new_given)
            ; emitWorkNC [new_given]
            ; updInertTcS $ \is ->

@@ -84,6 +84,7 @@ import GHC.Types.Id
 import GHC.Core.InstEnv
 import GHC.Data.FastString
 import GHC.Types.Unique
+import GHC.Core.Multiplicity
 
 
 -- | Perform some IO, typically to interact with an external tool.
@@ -159,7 +160,7 @@ zonkCt = unsafeTcPluginTcM . TcM.zonkCt
 -- | Create a new wanted constraint.
 newWanted  :: CtLoc -> PredType -> TcPluginM CtEvidence
 newWanted loc pty
-  = unsafeTcPluginTcM (TcM.newWanted (ctLocOrigin loc) Nothing pty)
+  = unsafeTcPluginTcM (scaledThing <$> TcM.newWanted (ctLocOrigin loc) Nothing (unrestricted pty))
 
 -- | Create a new derived constraint.
 newDerived :: CtLoc -> PredType -> TcPluginM CtEvidence
@@ -176,7 +177,7 @@ newGiven loc pty evtm = do
 
 -- | Create a fresh evidence variable.
 newEvVar :: PredType -> TcPluginM EvVar
-newEvVar = unsafeTcPluginTcM . TcM.newEvVar
+newEvVar = unsafeTcPluginTcM . fmap scaledThing .TcM.newEvVar . unrestricted
 
 -- | Create a fresh coercion hole.
 newCoercionHole :: PredType -> TcPluginM CoercionHole

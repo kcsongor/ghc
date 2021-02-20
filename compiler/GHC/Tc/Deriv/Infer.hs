@@ -56,6 +56,7 @@ import Control.Monad.Trans.Class  (lift)
 import Control.Monad.Trans.Reader (ask)
 import Data.List                  (sortBy)
 import Data.Maybe
+import GHC.Core.Multiplicity
 
 ----------------------
 
@@ -117,7 +118,7 @@ inferConstraints mechanism
                                      , ppr main_cls <+> ppr inst_tys )
                               [ mkThetaOrigin (mkDerivOrigin wildcard)
                                               TypeLevel [] [] [] $
-                                substTheta cls_subst (classSCTheta main_cls) ]
+                                substTheta cls_subst (map unrestricted (classSCTheta main_cls)) ]
              cls_subst = ASSERT( equalLength cls_tvs inst_tys )
                          zipTvSubst cls_tvs inst_tys
 
@@ -248,7 +249,7 @@ inferConstraintsStock (DerivInstTys { dit_cls_tys     = cls_tys
               = map $ \ty -> let ki = tcTypeKind ty in
                              ( [ mk_cls_pred orig t_or_k cls ty
                                , mkPredOrigin orig KindLevel
-                                   (mkPrimEqPred ki typeToTypeKind) ]
+                                   (unrestricted (mkPrimEqPred ki typeToTypeKind)) ]
                              , tcUnifyTy ki typeToTypeKind
                              )
 
@@ -266,7 +267,7 @@ inferConstraintsStock (DerivInstTys { dit_cls_tys     = cls_tys
                -- Stupid constraints
            stupid_constraints
              = [ mkThetaOrigin deriv_origin TypeLevel [] [] [] $
-                 substTheta tc_subst (tyConStupidTheta rep_tc) ]
+                 substTheta tc_subst (map unrestricted (tyConStupidTheta rep_tc)) ]
            tc_subst = -- See the comment with all_rep_tc_args for an
                       -- explanation of this assertion
                       ASSERT( equalLength rep_tc_tvs all_rep_tc_args )
@@ -292,7 +293,7 @@ inferConstraintsStock (DerivInstTys { dit_cls_tys     = cls_tys
 
            mk_cls_pred orig t_or_k cls ty
                 -- Don't forget to apply to cls_tys' too
-              = mkPredOrigin orig t_or_k (mkClassPred cls (cls_tys' ++ [ty]))
+              = mkPredOrigin orig t_or_k (unrestricted  $ mkClassPred cls (cls_tys' ++ [ty]))
            cls_tys' | is_generic1 = []
                       -- In the awkward Generic1 case, cls_tys' should be
                       -- empty, since we are applying the class Functor.
@@ -364,7 +365,7 @@ inferConstraintsAnyclass
                           gen_dm_ty' = substTyWith cls_tvs inst_tys gen_dm_ty
                           (dm_tvs, dm_theta, dm_tau)
                                      = tcSplitNestedSigmaTys gen_dm_ty'
-                          tau_eq     = mkPrimEqPred meth_tau dm_tau
+                          tau_eq     = unrestricted $ mkPrimEqPred meth_tau dm_tau
                     ; return (mkThetaOrigin (mkDerivOrigin wildcard) TypeLevel
                                 meth_tvs dm_tvs meth_theta (tau_eq:dm_theta)) }
 
@@ -392,7 +393,7 @@ inferConstraintsCoerceBased cls_tys rep_ty = do
       -- newtype (for GeneralizedNewtypeDeriving) or a @via@ type
       -- (for DerivingVia).
       rep_tys ty  = cls_tys ++ [ty]
-      rep_pred ty = mkClassPred cls (rep_tys ty)
+      rep_pred ty = unrestricted $ mkClassPred cls (rep_tys ty)
       rep_pred_o ty = mkPredOrigin deriv_origin TypeLevel (rep_pred ty)
               -- rep_pred is the representation dictionary, from where
               -- we are going to get all the methods for the final
@@ -411,7 +412,7 @@ inferConstraintsCoerceBased cls_tys rep_ty = do
       meths = classMethods cls
       coercible_constraints ty
         = [ mkPredOrigin (DerivOriginCoerce meth t1 t2 sa_wildcard)
-                         TypeLevel (mkReprPrimEqPred t1 t2)
+                         TypeLevel (unrestricted $ mkReprPrimEqPred t1 t2)
           | meth <- meths
           , let (Pair t1 t2) = mkCoerceClassMethEqn cls tvs
                                        inst_tys ty meth ]
@@ -672,7 +673,7 @@ simplifyInstanceContexts infer_specs
                           extendLocalInstEnv inst_specs $
                           mapM gen_soln infer_specs
 
-           ; if (current_solns `eqSolution` new_solns) then
+           ; if (map (map scaledThing) current_solns `eqSolution` map (map scaledThing) new_solns) then
                 return [ spec { ds_theta = soln }
                        | (spec, soln) <- zip infer_specs current_solns ]
              else
@@ -731,9 +732,9 @@ simplifyDeriv pred tvs thetas
              skol_info = DerivSkol pred
              doc = text "deriving" <+> parens (ppr pred)
 
-             mk_given_ev :: PredType -> TcM EvVar
+             mk_given_ev :: Scaled PredType -> TcM (Scaled EvVar)
              mk_given_ev given =
-               let given_pred = substTy skol_subst given
+               let given_pred = substScaledTy skol_subst given
                in newEvVar given_pred
 
              emit_wanted_constraints :: [TyVar] -> [PredOrigin] -> TcM ()
@@ -748,9 +749,9 @@ simplifyDeriv pred tvs thetas
                     -- Now make a constraint for each of the instantiated predicates
                     ; let wanted_subst = skol_subst `unionTCvSubst` meta_subst
                           mk_wanted_ct (PredOrigin wanted orig t_or_k)
-                            = do { ev <- newWanted orig (Just t_or_k) $
-                                         substTyUnchecked wanted_subst wanted
-                                 ; return (mkNonCanonical ev) }
+                            = do { Scaled w ev <- newWanted orig (Just t_or_k) $
+                                                  substScaledTyUnchecked wanted_subst wanted
+                                 ; return (mkScaledNonCanonical w ev) }
                     ; cts <- mapM mk_wanted_ct preds
 
                     -- And emit them into the monad
@@ -827,7 +828,7 @@ simplifyDeriv pred tvs thetas
          vcat [ ppr tvs_skols, ppr residual_simple, ppr good ]
 
        -- Return the good unsolved constraints (unskolemizing on the way out.)
-       ; let min_theta = mkMinimalBySCs id (bagToList good)
+       ; let min_theta = map unrestricted $ mkMinimalBySCs id (bagToList good)
              -- An important property of mkMinimalBySCs (used above) is that in
              -- addition to removing constraints that are made redundant by
              -- superclass relationships, it also removes _duplicate_

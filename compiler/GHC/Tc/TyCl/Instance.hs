@@ -535,7 +535,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = hs_ty, cid_binds = binds
                 -- Dfun location is that of instance *header*
 
         ; ispec <- newClsInst (fmap unLoc overlap_mode) dfun_name
-                              tyvars theta clas inst_tys
+                              tyvars (map unrestricted theta) clas inst_tys
 
         ; let inst_binds = InstBindings
                              { ib_binds = binds
@@ -760,7 +760,7 @@ tcDataFamInstDecl mb_clsinfo tv_skol_env
                     rep_tc   = mkAlgTyCon rep_tc_name
                                           ty_binders final_res_kind
                                           (map (const Nominal) ty_binders)
-                                          (fmap unLoc cType) stupid_theta
+                                          (fmap unLoc cType) (map scaledThing stupid_theta)
                                           tc_rhs parent
                                           gadt_syntax
                  -- We always assume that indexed types are recursive.  Why?
@@ -934,7 +934,7 @@ tcDataFamInstHeader mb_clsinfo fam_tc outer_bndrs fixity
            Just (_, pats) -> pure pats
            Nothing -> pprPanic "tcDataFamInstHeader" (ppr lhs_ty)
 
-       ; return (qtvs, pats, master_res_kind, stupid_theta) }
+       ; return (qtvs, pats, master_res_kind, map unrestricted stupid_theta) }
   where
     fam_name  = tyConName fam_tc
     data_ctxt = DataKindCtxt fam_name
@@ -1192,7 +1192,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
 
        ; let (clas, inst_tys) = tcSplitDFunHead inst_head
              (class_tyvars, sc_theta, _, op_items) = classBigSig clas
-             sc_theta' = substTheta (zipTvSubst class_tyvars inst_tys) sc_theta
+             sc_theta' = substTheta (zipTvSubst class_tyvars inst_tys) (map unrestricted sc_theta)
 
        ; traceTc "tcInstDecl2" (vcat [ppr inst_tyvars, ppr inst_tys, ppr dfun_theta, ppr sc_theta'])
 
@@ -1207,13 +1207,13 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
        ; (tclvl, (sc_meth_ids, sc_meth_binds, sc_meth_implics))
              <- pushTcLevelM $
                 do { (sc_ids, sc_binds, sc_implics)
-                        <- tcSuperClasses dfun_id clas inst_tyvars dfun_ev_vars
+                        <- tcSuperClasses dfun_id clas inst_tyvars (map scaledThing dfun_ev_vars)
                                           inst_tys dfun_ev_binds
                                           sc_theta'
 
                       -- Typecheck the methods
                    ; (meth_ids, meth_binds, meth_implics)
-                        <- tcMethods dfun_id clas inst_tyvars dfun_ev_vars
+                        <- tcMethods dfun_id clas inst_tyvars (map scaledThing dfun_ev_vars)
                                      inst_tys dfun_ev_binds spec_inst_info
                                      op_items ibinds
 
@@ -1257,7 +1257,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                                             (L loc (wrapId arg_wrapper meth_id))
 
              inst_tv_tys = mkTyVarTys inst_tyvars
-             arg_wrapper = mkWpEvVarApps dfun_ev_vars <.> mkWpTyApps inst_tv_tys
+             arg_wrapper = mkWpEvVarApps (map scaledThing dfun_ev_vars) <.> mkWpTyApps inst_tv_tys
 
              is_newtype = isNewTyCon class_tc
              dfun_id_w_prags = addDFunPrags dfun_id sc_meth_ids
@@ -1275,7 +1275,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                           -- NB: see Note [SPECIALISE instance pragmas]
              main_bind = AbsBinds { abs_ext = noExtField
                                   , abs_tvs = inst_tyvars
-                                  , abs_ev_vars = dfun_ev_vars
+                                  , abs_ev_vars = map scaledThing dfun_ev_vars
                                   , abs_exports = [export]
                                   , abs_ev_binds = []
                                   , abs_binds = unitBag dict_bind
@@ -1414,10 +1414,10 @@ tcSuperClasses dfun_id cls tyvars dfun_evs inst_tys dfun_ev_binds sc_theta
                 <- checkInstConstraints $ emitWanted (ScOrigin size) sc_pred
 
            ; sc_top_name  <- newName (mkSuperDictAuxOcc n (getOccName cls))
-           ; sc_ev_id     <- newEvVar sc_pred
+           ; sc_ev_id     <- scaledThing <$> newEvVar sc_pred
            ; addTcEvBind ev_binds_var $ mkWantedEvBind sc_ev_id sc_ev_tm
            ; let sc_top_ty = mkInfForAllTys tyvars $
-                             mkPhiTy (map idType dfun_evs) sc_pred
+                             mkPhiTy (map (unrestricted . idType) dfun_evs) (scaledThing sc_pred)
                  sc_top_id = mkLocalId sc_top_name Many sc_top_ty
                  export = ABE { abe_ext  = noExtField
                               , abe_wrap = idHsWrapper
@@ -1958,7 +1958,7 @@ mkMethIds clas tyvars dfun_ev_vars inst_tys sel_id
     sel_occ       = nameOccName sel_name
     local_meth_ty = instantiateMethod clas sel_id inst_tys
     poly_meth_ty  = mkSpecSigmaTy tyvars theta local_meth_ty
-    theta         = map idType dfun_ev_vars
+    theta         = map (unrestricted . idType) dfun_ev_vars
 
 methSigCtxt :: Name -> TcType -> TcType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
 methSigCtxt sel_name sig_ty meth_ty env0

@@ -674,7 +674,7 @@ deriveStandalone (L loc (DerivDecl _ deriv_ty mb_lderiv_strat overlap_mode))
                    final_via_ty     = substTy  subst via_ty
                    -- See Note [Floating `via` type variables]
                    final_tvs        = tyCoVarsOfTypesWellScoped $
-                                      final_deriv_ctxt_tys ++ final_inst_tys
+                                      map scaledThing final_deriv_ctxt_tys ++ final_inst_tys
                                         ++ [final_via_ty]
                pure ( final_tvs, final_deriv_ctxt, final_inst_tys
                     , Just (ViaStrategy final_via_ty) )
@@ -732,7 +732,7 @@ tcStandaloneDerivInstType ctxt
   | otherwise
   = do dfun_ty <- tcHsClsInstType ctxt deriv_ty
        let (tvs, theta, cls, inst_tys) = tcSplitDFunTy dfun_ty
-       pure (tvs, SupplyContext theta, cls, inst_tys)
+       pure (tvs, SupplyContext (map unrestricted theta), cls, inst_tys)
 
 warnUselessTypeable :: TcM ()
 warnUselessTypeable

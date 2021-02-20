@@ -679,7 +679,7 @@ tyOracle ty_st@(TySt n inert) cts
   | otherwise
   = do { evs <- traverse nameTyCt cts
        ; tracePm "tyOracle" (ppr cts $$ ppr inert)
-       ; ((_warns, errs), res) <- initTcDsForSolver $ tcCheckSatisfiability inert evs
+       ; ((_warns, errs), res) <- initTcDsForSolver $ tcCheckSatisfiability inert (mapBag unrestricted evs)
        ; case res of
             -- return the new inert set and increment the sequence number n
             Just mb_new_inert -> return (TySt (n+1) <$> mb_new_inert)
@@ -1498,7 +1498,7 @@ instCon fuel nabla@MkNabla{nabla_ty_st = ty_st} x con = MaybeT $ do
       runMaybeT $ do
         -- Case (2) of Note [Strict fields and variables of unlifted type]
         let alt = PmAltConLike con
-        nabla' <- addPhiTmCt nabla (PhiConCt x alt ex_tvs gammas arg_ids)
+        nabla' <- addPhiTmCt nabla (PhiConCt x alt ex_tvs (map scaledThing gammas) arg_ids)
         let branching_factor = length $ filterUnliftedFields alt arg_ids
         -- See Note [Fuel for the inhabitation test]
         let new_fuel

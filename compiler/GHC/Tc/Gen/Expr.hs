@@ -235,7 +235,7 @@ tcExpr e@(HsIPVar _ x) res_ty
          ip_ty <- newOpenFlexiTyVarTy
        ; let ip_name = mkStrLitTy (hsIPNameFS x)
        ; ipClass <- tcLookupClass ipClassName
-       ; ip_var <- emitScaledWantedEvVar origin (Scaled One (mkClassPred ipClass [ip_name, ip_ty]))
+       ; ip_var <- emitScaledWantedEvVar One origin (mkClassPred ipClass [ip_name, ip_ty])
        -- TODO(csongor): here, we know that we generated a new usage
        -- of the IP, so emit a constraint accordinly.
        -- What should this constraint look like? Be careful here of shadowing.
@@ -1282,7 +1282,7 @@ getFixedTyVars upd_fld_occs univ_tvs cons
                             flds = conLikeFieldLabels con
                             fixed_tvs = exactTyCoVarsOfTypes (map scaledThing fixed_tys)
                                     -- fixed_tys: See Note [Type of a record update]
-                                        `unionVarSet` tyCoVarsOfTypes theta
+                                        `unionVarSet` tyCoVarsOfTypes (map scaledThing theta)
                                     -- Universally-quantified tyvars that
                                     -- appear in any of the *implicit*
                                     -- arguments to the constructor are fixed

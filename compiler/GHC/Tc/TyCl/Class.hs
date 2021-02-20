@@ -205,9 +205,9 @@ tcClassDecl2 (L _ (ClassDecl {tcdLName = class_name, tcdSigs = sigs,
               sig_fn      = mkHsSigFun sigs
               clas_tyvars = snd (tcSuperSkolTyVars tyvars)
               pred        = mkClassPred clas (mkTyVarTys clas_tyvars)
-        ; this_dict <- newEvVar pred
+        ; this_dict <- newEvVar (unrestricted pred)
 
-        ; let tc_item = tcDefMeth clas clas_tyvars this_dict
+        ; let tc_item = tcDefMeth clas clas_tyvars (scaledThing this_dict)
                                   default_binds sig_fn prag_fn
         ; dm_binds <- tcExtendTyVarEnv clas_tyvars $
                       mapM tc_item op_items
@@ -291,7 +291,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn
                                         , sig_loc   = getLoc hs_ty }
 
        ; (ev_binds, (tc_bind, _))
-               <- checkConstraints skol_info tyvars [this_dict] $
+               <- checkConstraints skol_info tyvars [unrestricted this_dict] $
                   tcPolyCheck no_prag_fn local_dm_sig
                               (L bind_loc lm_bind)
 
@@ -353,7 +353,7 @@ instantiateMethod clas sel_id inst_tys
     (first_pred, local_meth_ty) = tcSplitPredFunTy_maybe rho_ty
                 `orElse` pprPanic "tcInstanceMethod" (ppr sel_id)
 
-    ok_first_pred = case getClassPredTys_maybe first_pred of
+    ok_first_pred = case getClassPredTys_maybe (scaledThing first_pred) of
                       Just (clas1, _tys) -> clas == clas1
                       Nothing -> False
               -- The first predicate should be of form (C a b)

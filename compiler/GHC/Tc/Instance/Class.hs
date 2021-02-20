@@ -49,6 +49,7 @@ import GHC.Utils.Panic
 import GHC.Utils.Misc( splitAtList, fstOf3 )
 
 import Data.Maybe
+import GHC.Core.Multiplicity
 
 {- *******************************************************************
 *                                                                    *
@@ -211,7 +212,7 @@ match_one so dfun_id mb_inst_tys
   = do { traceTc "match_one" (ppr dfun_id $$ ppr mb_inst_tys)
        ; (tys, theta) <- instDFunType dfun_id mb_inst_tys
        ; traceTc "match_one 2" (ppr dfun_id $$ ppr tys $$ ppr theta)
-       ; return $ OneInst { cir_new_theta = theta
+       ; return $ OneInst { cir_new_theta = map scaledThing theta
                           , cir_mk_ev     = evDFunApp dfun_id tys
                           , cir_what      = TopLevInstance { iw_dfun_id = dfun_id
                                                            , iw_safe_over = so } } }
@@ -688,7 +689,7 @@ matchHasField dflags short_cut clas tys
                          -- the HasField x r a dictionary.  The preds will
                          -- typically be empty, but if the datatype has a
                          -- "stupid theta" then we have to include it here.
-                   ; let theta = mkPrimEqPred sel_ty (mkVisFunTyMany r_ty a_ty) : preds
+                   ; let theta = mkPrimEqPred sel_ty (mkVisFunTyMany r_ty a_ty) : map scaledThing preds
 
                          -- Use the equality proof to cast the selector Id to
                          -- type (r -> a), then use the newtype coercion to cast

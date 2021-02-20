@@ -256,7 +256,7 @@ tcLocalBinds (HsIPBinds x (IPBinds _ ip_binds)) thing_inside
         -- See Note [Implicit parameter untouchables]
         -- TODO(csongor): this is where shadowing of an IP binder happens.
         ; (ev_binds, result) <- checkConstraints (IPSkol ips)
-                                  [] given_ips thing_inside
+                                  [] (map linear given_ips) thing_inside
 
         ; return (HsIPBinds x (IPBinds ev_binds ip_binds') , result) }
   where
@@ -733,7 +733,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
        ; (qtvs, givens, ev_binds, insoluble)
                  <- simplifyInfer tclvl infer_mode sigs name_taus wanted
 
-       ; let inferred_theta = map evVarPred givens
+       ; let inferred_theta = map (fmap evVarPred) givens
        ; exports <- checkNoErrs $
                     mapM (mkExport prag_fn insoluble qtvs inferred_theta) mono_infos
 
@@ -742,7 +742,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
              abs_bind = L loc $
                         AbsBinds { abs_ext = noExtField
                                  , abs_tvs = qtvs
-                                 , abs_ev_vars = givens, abs_ev_binds = [ev_binds]
+                                 , abs_ev_vars = map scaledThing givens, abs_ev_binds = [ev_binds]
                                  , abs_exports = exports, abs_binds = binds'
                                  , abs_sig = False }
 
@@ -894,7 +894,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs qtvs
        ; mapM_ report_mono_sig_tv_err [ n | (n,tv) <- psig_qtv_prs
                                           , not (tv `elem` qtvs) ]
 
-       ; annotated_theta      <- zonkTcTypes annotated_theta
+       ; annotated_theta      <- traverse (\(Scaled w t) -> Scaled <$> zonkTcType w <*> zonkTcType  t) annotated_theta
        ; (free_tvs, my_theta) <- choose_psig_context psig_qtv_set annotated_theta wcx
 
        ; let keep_me    = free_tvs `unionVarSet` psig_qtv_set
@@ -928,7 +928,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs qtvs
     choose_psig_context :: VarSet -> TcThetaType -> Maybe TcType
                         -> TcM (VarSet, TcThetaType)
     choose_psig_context _ annotated_theta Nothing
-      = do { let free_tvs = closeOverKinds (tyCoVarsOfTypes annotated_theta
+      = do { let free_tvs = closeOverKinds (tyCoVarsOfTypes (map scaledThing annotated_theta)
                                             `unionVarSet` tau_tvs)
            ; return (free_tvs, annotated_theta) }
 
@@ -936,7 +936,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs qtvs
       = do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta seed_tvs)
                             -- growThetaVars just like the no-type-sig case
                             -- Omitting this caused #12844
-                 seed_tvs = tyCoVarsOfTypes annotated_theta  -- These are put there
+                 seed_tvs = tyCoVarsOfTypes (map scaledThing annotated_theta)  -- These are put there
                             `unionVarSet` tau_tvs            --       by the user
 
            ; let keep_me  = psig_qtvs `unionVarSet` free_tvs
@@ -952,7 +952,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs qtvs
                -- We know that wc_co must have type kind(wc_var) ~ Constraint, as it
                -- comes from the checkExpectedKind in GHC.Tc.Gen.HsType.tcAnonWildCardOcc.
                -- So, to make the kinds work out, we reverse the cast here.
-               Just (wc_var, wc_co) -> writeMetaTyVar wc_var (mk_ctuple diff_theta
+               Just (wc_var, wc_co) -> writeMetaTyVar wc_var (mk_ctuple (map scaledThing diff_theta)
                                                               `mkCastTy` mkTcSymCo wc_co)
                Nothing              -> pprPanic "chooseInferredQuantifiers 1" (ppr wc_var_ty)
 

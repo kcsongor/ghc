@@ -2355,7 +2355,7 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
        ; let mk_doc tidy_env = do { (tidy_env2, ctxt) <- zonkTidyTcTypes tidy_env ctxt
                                   ; return ( tidy_env2
                                            , sep [ text "the class context:"
-                                                 , pprTheta ctxt ] ) }
+                                                 , pprTheta (map unrestricted ctxt) ] ) }
        ; doNotQuantifyTyVars dvs mk_doc
 
        -- The pushLevelAndSolveEqualities will report errors for any
@@ -2377,7 +2377,7 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
        ; let body | is_boot, null ctxt, null at_stuff, null sig_stuff
                   = Nothing
                   | otherwise
-                  = Just (ctxt, at_stuff, sig_stuff, mindef)
+                  = Just (map unrestricted ctxt, at_stuff, sig_stuff, mindef)
 
        ; clas <- buildClass class_name binders roles fds body
        ; traceTc "tcClassDecl" (ppr fundeps $$ ppr binders $$
@@ -2810,7 +2810,7 @@ tcDataDefn err_ctxt roles_info tc_name
                = do { (tidy_env2, theta) <- zonkTidyTcTypes tidy_env stupid_tc_theta
                     ; return ( tidy_env2
                              , sep [ text "the datatype context:"
-                                   , pprTheta theta ] ) }
+                                   , pprTheta (map unrestricted theta) ] ) }
        ; doNotQuantifyTyVars dvs mk_doc
 
        ; ze              <- mkEmptyZonkEnv NoFlexi
@@ -3306,7 +3306,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; let tc_tvs   = binderVars tc_bndrs
              fake_ty  = mkSpecForAllTys  tc_tvs      $
                         mkInvisForAllTys exp_tvbndrs $
-                        mkPhiTy ctxt $
+                        mkPhiTy (map unrestricted ctxt) $
                         mkVisFunTys arg_tys $
                         unitTy
              -- That type is a lie, of course. (It shouldn't end in ()!)
@@ -3356,7 +3356,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; dc <- buildDataCon fam_envs name is_infix rep_nm
                             stricts Nothing field_lbls
                             tc_tvs ex_tvs user_tvbs
-                            [{- no eq_preds -}] ctxt arg_tys
+                            [{- no eq_preds -}] (map unrestricted ctxt) arg_tys
                             user_res_ty rep_tycon tag_map
                   -- NB:  we put data_tc, the type constructor gotten from the
                   --      constructor type signature into the data constructor;
@@ -3409,7 +3409,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
        ; outer_tv_bndrs <- scopedSortOuter outer_bndrs
 
        ; tkvs <- kindGeneralizeAll (mkInvisForAllTys outer_tv_bndrs $
-                                    mkPhiTy ctxt $
+                                    mkPhiTy (map unrestricted ctxt) $
                                     mkVisFunTys arg_tys $
                                     res_ty)
        ; traceTc "tcConDecl:GADT" (ppr names $$ ppr res_ty $$ ppr tkvs)
@@ -3445,7 +3445,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
                             rep_nm
                             stricts Nothing field_lbls
                             univ_tvs ex_tvs tvbndrs' eq_preds
-                            ctxt' arg_tys' res_ty' rep_tycon tag_map
+                            (map unrestricted ctxt') arg_tys' res_ty' rep_tycon tag_map
                   -- NB:  we put data_tc, the type constructor gotten from the
                   --      constructor type signature into the data constructor;
                   --      that way checkValidDataCon can complain if it's wrong.
@@ -4136,7 +4136,7 @@ checkValidTyCon tc
              | otherwise -> do
                { -- Check the context on the data decl
                  traceTc "cvtc1" (ppr tc)
-               ; checkValidTheta (DataTyCtxt name) (tyConStupidTheta tc)
+               ; checkValidTheta (DataTyCtxt name) (map unrestricted (tyConStupidTheta tc))
 
                ; traceTc "cvtc2" (ppr tc)
 
@@ -4439,7 +4439,7 @@ checkValidClass cls
         ; checkTc (fundep_classes || null fundeps) (classFunDepsErr cls)
 
         -- Check the super-classes
-        ; checkValidTheta (ClassSCCtxt (className cls)) theta
+        ; checkValidTheta (ClassSCCtxt (className cls)) (map unrestricted theta)
 
           -- Now check for cyclic superclasses
           -- If there are superclass cycles, checkClassCycleErrs bails.
@@ -4484,7 +4484,7 @@ checkValidClass cls
         ; unless constrained_class_methods $
           mapM_ check_constraint (tail (cls_pred:op_theta))
 
-        ; check_dm ctxt sel_id cls_pred tau2 dm
+        ; check_dm ctxt sel_id (scaledThing cls_pred) tau2 dm
         }
         where
           ctxt    = FunSigCtxt op_name True -- Report redundant class constraints
@@ -4494,13 +4494,13 @@ checkValidClass cls
           -- See Note [Splitting nested sigma types in class type signatures]
           (_,op_theta,tau2) = tcSplitNestedSigmaTys tau1
 
-          check_constraint :: TcPredType -> TcM ()
+          check_constraint :: Scaled TcPredType -> TcM ()
           check_constraint pred -- See Note [Class method constraints]
             = when (not (isEmptyVarSet pred_tvs) &&
                     pred_tvs `subVarSet` cls_tv_set)
-                   (addErrTc (badMethPred sel_id pred))
+                   (addErrTc (badMethPred sel_id (scaledThing pred)))
             where
-              pred_tvs = tyCoVarsOfType pred
+              pred_tvs = tyCoVarsOfType (scaledThing pred)
 
     check_at (ATI fam_tc m_dflt_rhs)
       = do { checkTc (cls_arity == 0 || any (`elemVarSet` cls_tv_set) fam_tvs)
@@ -4570,8 +4570,8 @@ checkValidClass cls
               -- different class type variables! Therefore, it's important that
               -- we include the class predicate parts to match up a with aa and
               -- b with bb.
-              vanilla_phi_ty = mkPhiTy [vanilla_cls_pred] vanilla_tau
-              dm_phi_ty      = mkPhiTy [cls_pred] dm_tau
+              vanilla_phi_ty = mkPhiTy [unrestricted vanilla_cls_pred] vanilla_tau
+              dm_phi_ty      = mkPhiTy [unrestricted cls_pred] dm_tau
 
           traceTc "check_dm" $ vcat
               [ text "vanilla_phi_ty" <+> ppr vanilla_phi_ty
@@ -4871,7 +4871,7 @@ checkValidRoles tc
     check_dc_roles datacon
       = do { traceTc "check_dc_roles" (ppr datacon <+> ppr (tyConRoles tc))
            ; mapM_ (check_ty_roles role_env Representational) $
-                    eqSpecPreds eq_spec ++ theta ++ (map scaledThing arg_tys) }
+                    map scaledThing (eqSpecPreds eq_spec ++ theta ++ arg_tys) }
                     -- See Note [Role-checking data constructor arguments] in GHC.Tc.TyCl.Utils
       where
         (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)

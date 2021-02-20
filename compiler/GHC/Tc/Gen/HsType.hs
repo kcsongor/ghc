@@ -1088,7 +1088,7 @@ tc_hs_type mode (HsQualTy { hst_ctxt = ctxt, hst_body = rn_ty }) exp_kind
   | tcIsConstraintKind exp_kind
   = do { ctxt' <- tc_hs_context mode ctxt
        ; ty'   <- tc_lhs_type mode rn_ty constraintKind
-       ; return (mkPhiTy ctxt' ty') }
+       ; return (mkPhiTy (map unrestricted ctxt') ty') }
 
   | otherwise
   = do { ctxt' <- tc_hs_context mode ctxt
@@ -1096,7 +1096,7 @@ tc_hs_type mode (HsQualTy { hst_ctxt = ctxt, hst_body = rn_ty }) exp_kind
        ; ek <- newOpenTypeKind  -- The body kind (result of the function) can
                                 -- be TYPE r, for any r, hence newOpenTypeKind
        ; ty' <- tc_lhs_type mode rn_ty ek
-       ; checkExpectedKind (unLoc rn_ty) (mkPhiTy ctxt' ty')
+       ; checkExpectedKind (unLoc rn_ty) (mkPhiTy (map unrestricted ctxt') ty')
                            liftedTypeKind exp_kind }
 
 --------- Lists, arrays, and tuples
@@ -1893,7 +1893,7 @@ tcTyVar mode name         -- Could be a tyvar, a tycon, or a datacon
     -- constraints other than equalities, so error if we find one.
     -- See Note [Constraints in kinds] in GHC.Core.TyCo.Rep
     dc_theta_illegal_constraint :: ThetaType -> Maybe PredType
-    dc_theta_illegal_constraint = find (not . isEqPred)
+    dc_theta_illegal_constraint theta = scaledThing <$> find (not . isEqPred . scaledThing) theta
 
 {-
 Note [Recursion through the kinds]
@@ -3777,7 +3777,7 @@ tcHsPartialSigType ctxt sig_ty
        -- See Note [Checking partial type signatures], and in particular
        -- Note [Levels for wildcards]
        ; outer_tv_bndrs <- mapM zonkInvisTVBinder outer_tv_bndrs
-       ; theta          <- mapM zonkTcType theta
+       ; theta          <- mapM (traverse zonkTcType) theta
        ; tau            <- zonkTcType tau
 
          -- We return a proper (Name,InvisTVBinder) environment, to be sure that
@@ -3802,10 +3802,10 @@ tcPartialContext mode hs_theta
   = do { wc_tv_ty <- setSrcSpan wc_loc $
                      tcAnonWildCardOcc YesExtraConstraint mode ty constraintKind
        ; theta <- mapM (tc_lhs_pred mode) hs_theta1
-       ; return (theta, Just wc_tv_ty) }
+       ; return (map unrestricted theta, Just wc_tv_ty) }
   | otherwise
   = do { theta <- mapM (tc_lhs_pred mode) hs_theta
-       ; return (theta, Nothing) }
+       ; return (map unrestricted theta, Nothing) }
 
 {- Note [Checking partial type signatures]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

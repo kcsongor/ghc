@@ -405,14 +405,14 @@ zonkFieldOcc :: ZonkEnv -> FieldOcc GhcTc -> TcM (FieldOcc GhcTc)
 zonkFieldOcc env (FieldOcc sel lbl)
   = fmap ((flip FieldOcc) lbl) $ zonkIdBndr env sel
 
-zonkEvBndrsX :: ZonkEnv -> [EvVar] -> TcM (ZonkEnv, [Var])
+zonkEvBndrsX :: ZonkEnv -> [Scaled EvVar] -> TcM (ZonkEnv, [Scaled Var])
 zonkEvBndrsX = mapAccumLM zonkEvBndrX
 
-zonkEvBndrX :: ZonkEnv -> EvVar -> TcM (ZonkEnv, EvVar)
+zonkEvBndrX :: ZonkEnv -> Scaled EvVar -> TcM (ZonkEnv, Scaled EvVar)
 -- Works for dictionaries and coercions
 zonkEvBndrX env var
-  = do { var' <- zonkEvBndr env var
-       ; return (extendZonkEnv env [var'], var') }
+  = do { var' <- traverse (zonkEvBndr env) var
+       ; return (extendZonkEnv env [scaledThing var'], var') }
 
 zonkEvBndr :: ZonkEnv -> EvVar -> TcM EvVar
 -- Works for dictionaries and coercions
@@ -576,7 +576,7 @@ zonk_bind env (AbsBinds { abs_tvs = tyvars, abs_ev_vars = evs
                         , abs_sig = has_sig })
   = ASSERT( all isImmutableTyVar tyvars )
     do { (env0, new_tyvars) <- zonkTyBndrsX env tyvars
-       ; (env1, new_evs) <- zonkEvBndrsX env0 evs
+       ; (env1, new_evs) <- zonkEvBndrsX env0 (map unrestricted evs)
        ; (env2, new_ev_binds) <- zonkTcEvBinds_s env1 ev_binds
        ; (new_val_bind, new_exports) <- fixM $ \ ~(new_val_binds, _) ->
          do { let env3 = extendIdZonkEnvRec env2 $
@@ -585,7 +585,7 @@ zonk_bind env (AbsBinds { abs_tvs = tyvars, abs_ev_vars = evs
             ; new_exports   <- mapM (zonk_export env3) exports
             ; return (new_val_binds, new_exports) }
        ; return (AbsBinds { abs_ext = noExtField
-                          , abs_tvs = new_tyvars, abs_ev_vars = new_evs
+                          , abs_tvs = new_tyvars, abs_ev_vars = map scaledThing new_evs
                           , abs_ev_binds = new_ev_binds
                           , abs_exports = new_exports, abs_binds = new_val_bind
                           , abs_sig = has_sig }) }
@@ -1074,8 +1074,8 @@ zonkCoFn env (WpFun c1 c2 t1 d) = do { (env1, c1') <- zonkCoFn env c1
                                      ; return (env2, WpFun c1' c2' t1' d) }
 zonkCoFn env (WpCast co) = do { co' <- zonkCoToCo env co
                               ; return (env, WpCast co') }
-zonkCoFn env (WpEvLam ev)   = do { (env', ev') <- zonkEvBndrX env ev
-                                 ; return (env', WpEvLam ev') }
+zonkCoFn env (WpEvLam ev)   = do { (env', ev') <- zonkEvBndrX env (unrestricted ev) -- TODO(csongor): this should probably come from the wrapper?
+                                 ; return (env', WpEvLam (scaledThing ev')) }
 zonkCoFn env (WpEvApp arg)  = do { arg' <- zonkEvTerm env arg
                                  ; return (env, WpEvApp arg') }
 zonkCoFn env (WpTyLam tv)   = ASSERT( isImmutableTyVar tv )
@@ -1574,10 +1574,10 @@ zonkEvTerm env (EvTypeable ty ev)
 zonkEvTerm env (EvFun { et_tvs = tvs, et_given = evs
                       , et_binds = ev_binds, et_body = body_id })
   = do { (env0, new_tvs) <- zonkTyBndrsX env tvs
-       ; (env1, new_evs) <- zonkEvBndrsX env0 evs
+       ; (env1, new_evs) <- zonkEvBndrsX env0 (map unrestricted evs)
        ; (env2, new_ev_binds) <- zonkTcEvBinds env1 ev_binds
        ; let new_body_id = zonkIdOcc env2 body_id
-       ; return (EvFun { et_tvs = new_tvs, et_given = new_evs
+       ; return (EvFun { et_tvs = new_tvs, et_given = (map scaledThing new_evs)
                        , et_binds = new_ev_binds, et_body = new_body_id }) }
 
 zonkCoreExpr :: ZonkEnv -> CoreExpr -> TcM CoreExpr

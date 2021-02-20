@@ -59,6 +59,7 @@ import Data.List.NonEmpty ( NonEmpty(..) )
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import GHC.Core.Multiplicity
 
 {-
 **********************************************************************
@@ -1072,7 +1073,7 @@ shortCutSolver dflags ev_w ev_i
                        ; lift $ checkReductionDepth loc' pred
 
 
-                       ; evc_vs <- mapM (new_wanted_cached loc' solved_dicts') preds
+                       ; evc_vs <- mapM (new_wanted_cached loc' solved_dicts') (map unrestricted preds)
                                   -- Emit work for subgoals but use our local cache
                                   -- so we can solve recursive dictionaries.
 
@@ -1091,9 +1092,9 @@ shortCutSolver dflags ev_w ev_i
     -- Use a local cache of solved dicts while emitting EvVars for new work
     -- We bail out of the entire computation if we need to emit an EvVar for
     -- a subgoal that isn't a ClassPred.
-    new_wanted_cached :: CtLoc -> DictMap CtEvidence -> TcPredType -> MaybeT TcS MaybeNew
+    new_wanted_cached :: CtLoc -> DictMap CtEvidence -> Scaled TcPredType -> MaybeT TcS MaybeNew
     new_wanted_cached loc cache pty
-      | ClassPred cls tys <- classifyPredType pty
+      | ClassPred cls tys <- classifyPredType (scaledThing pty)
       = lift $ case findDict cache loc_w cls tys of
           Just ctev -> return $ Cached (ctEvExpr ctev)
           Nothing   -> Fresh <$> newWantedNC loc pty
@@ -2008,7 +2009,7 @@ chooseInstance work_item
                   -- See Note [Instances in no-evidence implications]
 
                 else
-           do { evc_vars <- mapM (newWanted deeper_loc) theta
+           do { evc_vars <- mapM (newWanted deeper_loc) (map unrestricted theta)
               ; setEvBindIfWanted ev (mk_ev (map getEvExpr evc_vars))
               ; emitWorkNC (freshGoals evc_vars)
               ; stopWith ev "Dict/Top (solved wanted)" }}}
@@ -2271,7 +2272,7 @@ matchLocalInst pred loc
              | not unifs
              -> do { let dfun_id = ctEvEvId dfun_ev
                    ; (tys, theta) <- instDFunType dfun_id inst_tys
-                   ; let result = OneInst { cir_new_theta = theta
+                   ; let result = OneInst { cir_new_theta = (map scaledThing theta)
                                           , cir_mk_ev     = evDFunApp dfun_id tys
                                           , cir_what      = LocalInstance }
                    ; traceTcS "Local inst found:" (ppr result)

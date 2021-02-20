@@ -25,6 +25,7 @@ import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Data.FastString
 import qualified GHC.LanguageExtensions as LangExt
+import GHC.Core.Multiplicity
 
 tcDefaults :: [LDefaultDecl GhcRn]
            -> TcM (Maybe [Type])    -- Defaulting types to heave
@@ -87,7 +88,7 @@ check_instance :: Type -> Class -> TcM Bool
 check_instance ty cls
   = do  { (_, success) <- discardErrs $
                           askNoErrs $
-                          simplifyDefault [mkClassPred cls [ty]]
+                          simplifyDefault [unrestricted $ mkClassPred cls [ty]]
         ; return success }
 
 defaultDeclCtxt :: SDoc

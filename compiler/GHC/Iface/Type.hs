@@ -185,7 +185,7 @@ data IfaceType
 type IfaceMult = IfaceType
 
 type IfacePredType = IfaceType
-type IfaceContext = [IfacePredType]
+type IfaceContext = [(IfaceMult, IfacePredType)]
 
 data IfaceTyLit
   = IfaceNumTyLit Integer
@@ -423,7 +423,7 @@ isIfaceLiftedTypeKind (IfaceTyConApp tc
   && ptr_rep_lifted `ifaceTyConHasKey` liftedRepDataConKey
 isIfaceLiftedTypeKind _ = False
 
-splitIfaceSigmaTy :: IfaceType -> ([IfaceForAllBndr], [IfacePredType], IfaceType)
+splitIfaceSigmaTy :: IfaceType -> ([IfaceForAllBndr], IfaceContext, IfaceType)
 -- Mainly for printing purposes
 --
 -- Here we split nested IfaceSigmaTy properly.
@@ -451,8 +451,8 @@ splitIfaceSigmaTy ty
         = case split_foralls ty of { (bndrs, rho) -> (bndr:bndrs, rho) }
     split_foralls rho = ([], rho)
 
-    split_rho (IfaceFunTy InvisArg _ ty1 ty2)
-        = case split_rho ty2 of { (ps, tau) -> (ty1:ps, tau) }
+    split_rho (IfaceFunTy InvisArg w ty1 ty2)
+        = case split_rho ty2 of { (ps, tau) -> ((w, ty1):ps, tau) }
     split_rho tau = ([], tau)
 
 splitIfaceReqForallTy :: IfaceType -> ([IfaceForAllBndr], IfaceType)
@@ -1130,12 +1130,12 @@ ppr_app_arg ctx_prec (t, argf) =
        _         -> empty
 
 -------------------
-pprIfaceForAllPart :: [IfaceForAllBndr] -> [IfacePredType] -> SDoc -> SDoc
+pprIfaceForAllPart :: [IfaceForAllBndr] -> IfaceContext -> SDoc -> SDoc
 pprIfaceForAllPart tvs ctxt sdoc
   = ppr_iface_forall_part ShowForAllWhen tvs ctxt sdoc
 
 -- | Like 'pprIfaceForAllPart', but always uses an explicit @forall@.
-pprIfaceForAllPartMust :: [IfaceForAllBndr] -> [IfacePredType] -> SDoc -> SDoc
+pprIfaceForAllPartMust :: [IfaceForAllBndr] -> IfaceContext -> SDoc -> SDoc
 pprIfaceForAllPartMust tvs ctxt sdoc
   = ppr_iface_forall_part ShowForAllMust tvs ctxt sdoc
 
@@ -1144,7 +1144,7 @@ pprIfaceForAllCoPart tvs sdoc
   = sep [ pprIfaceForAllCo tvs, sdoc ]
 
 ppr_iface_forall_part :: ShowForAllFlag
-                      -> [IfaceForAllBndr] -> [IfacePredType] -> SDoc -> SDoc
+                      -> [IfaceForAllBndr] -> IfaceContext -> SDoc -> SDoc
 ppr_iface_forall_part show_forall tvs ctxt sdoc
   = sep [ case show_forall of
             ShowForAllMust -> pprIfaceForAll tvs
@@ -1829,10 +1829,10 @@ instance Binary IfaceAppArgs where
 -- Used when we want to print a context in a type, so we
 -- use 'funPrec' to decide whether to parenthesise a singleton
 -- predicate; e.g.   Num a => a -> a
-pprIfaceContextArr :: [IfacePredType] -> SDoc
+pprIfaceContextArr :: IfaceContext -> SDoc
 pprIfaceContextArr []     = empty
-pprIfaceContextArr [pred] = ppr_ty funPrec pred <+> darrow
-pprIfaceContextArr preds  = ppr_parend_preds preds <+> darrow
+pprIfaceContextArr [(mult, pred)] = ppr_ty funPrec pred <+> darrow <+> ppr mult
+pprIfaceContextArr preds  = ppr_parend_preds (map snd preds) <+> darrow <+> ppr (fst (head preds)) -- TODO(csongor): fix this
 
 -- | Prints a context or @()@ if empty
 -- You give it the context precedence

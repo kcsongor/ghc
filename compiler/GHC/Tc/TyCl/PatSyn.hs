@@ -172,12 +172,12 @@ tcInferPatSynDecl (PSB { psb_id = lname@(L _ name), psb_args = details
        ; top_ev_binds <- checkNoErrs (simplifyTop residual)
        ; addTopEvBinds top_ev_binds $
 
-    do { prov_dicts <- mapM zonkId prov_dicts
+    do { prov_dicts <- mapM zonkId (map scaledThing prov_dicts)
        ; let filtered_prov_dicts = mkMinimalBySCs evVarPred prov_dicts
              -- Filtering: see Note [Remove redundant provided dicts]
              (prov_theta, prov_evs)
                  = unzip (mapMaybe mkProvEvidence filtered_prov_dicts)
-             req_theta = map evVarPred req_dicts
+             req_theta = map (evVarPred . scaledThing) req_dicts
 
        -- Report coercions that escape
        -- See Note [Coercions that escape]
@@ -192,7 +192,7 @@ tcInferPatSynDecl (PSB { psb_id = lname@(L _ name), psb_args = details
        ; rec_fields <- lookupConstructorFields name
        ; tc_patsyn_finish lname dir is_infix lpat' prag_fn
                           (mkTyVarBinders InferredSpec univ_tvs
-                            , req_theta,  ev_binds, req_dicts)
+                            , req_theta,  ev_binds, map scaledThing req_dicts)
                           (mkTyVarBinders InferredSpec ex_tvs
                             , mkTyVarTys ex_tvs, prov_theta, prov_evs)
                           (map nlHsVar args, map idType args)
@@ -381,7 +381,7 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
 
          -- See Note [The pattern-synonym signature splitting rule] in GHC.Tc.Gen.Sig
        ; let univ_fvs = closeOverKinds $
-                        (tyCoVarsOfTypes (pat_ty : req_theta) `extendVarSetList` (binderVars explicit_univ_bndrs))
+                        (tyCoVarsOfTypes (pat_ty : map scaledThing req_theta) `extendVarSetList` (binderVars explicit_univ_bndrs))
              (extra_univ, extra_ex) = partition ((`elemVarSet` univ_fvs) . binderVar) implicit_bndrs
              univ_bndrs = extra_univ ++ explicit_univ_bndrs
              ex_bndrs   = extra_ex   ++ explicit_ex_bndrs
@@ -450,8 +450,8 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
 
        ; rec_fields <- lookupConstructorFields name
        ; tc_patsyn_finish lname dir is_infix lpat' prag_fn
-                          (skol_univ_bndrs, skol_req_theta, ev_binds, req_dicts)
-                          (skol_ex_bndrs, mkTyVarTys ex_tvs', skol_prov_theta, prov_dicts)
+                          (skol_univ_bndrs, map scaledThing skol_req_theta, ev_binds, map scaledThing req_dicts)
+                          (skol_ex_bndrs, mkTyVarTys ex_tvs', map scaledThing skol_prov_theta, prov_dicts)
                           (args', skol_arg_tys)
                           skol_pat_ty rec_fields }
   where
@@ -685,8 +685,8 @@ tc_patsyn_finish lname dir is_infix lpat' prag_fn
 
        ; let (env1, univ_tvs) = tidyTyCoVarBinders emptyTidyEnv univ_tvs'
              (env2, ex_tvs)   = tidyTyCoVarBinders env1 ex_tvs'
-             req_theta  = tidyTypes env2 req_theta'
-             prov_theta = tidyTypes env2 prov_theta'
+             req_theta  = map unrestricted $ tidyTypes env2 req_theta'
+             prov_theta = map unrestricted $ tidyTypes env2 prov_theta'
              arg_tys    = tidyTypes env2 arg_tys'
              pat_ty     = tidyType  env2 pat_ty'
 
@@ -1185,14 +1185,14 @@ tcCollectEx
   :: LPat GhcTc
   -> ( [TyVar]        -- Existentially-bound type variables
                       -- in correctly-scoped order; e.g. [ k:*, x:k ]
-     , [EvVar] )      -- and evidence variables
+     , [Scaled EvVar] )      -- and evidence variables
 
 tcCollectEx pat = go pat
   where
-    go :: LPat GhcTc -> ([TyVar], [EvVar])
+    go :: LPat GhcTc -> ([TyVar], [Scaled EvVar])
     go = go1 . unLoc
 
-    go1 :: Pat GhcTc -> ([TyVar], [EvVar])
+    go1 :: Pat GhcTc -> ([TyVar], [Scaled EvVar])
     go1 (LazyPat _ p)      = go p
     go1 (AsPat _ _ p)      = go p
     go1 (ParPat _ p)       = go p
@@ -1210,13 +1210,13 @@ tcCollectEx pat = go pat
       = pprPanic "TODO: NPlusKPat" $ ppr n $$ ppr k $$ ppr geq $$ ppr subtract
     go1 _                   = empty
 
-    goConDetails :: HsConPatDetails GhcTc -> ([TyVar], [EvVar])
+    goConDetails :: HsConPatDetails GhcTc -> ([TyVar], [Scaled EvVar])
     goConDetails (PrefixCon _ ps) = mergeMany . map go $ ps
     goConDetails (InfixCon p1 p2) = go p1 `merge` go p2
     goConDetails (RecCon HsRecFields{ rec_flds = flds })
       = mergeMany . map goRecFd $ flds
 
-    goRecFd :: LHsRecField GhcTc (LPat GhcTc) -> ([TyVar], [EvVar])
+    goRecFd :: LHsRecField GhcTc (LPat GhcTc) -> ([TyVar], [Scaled EvVar])
     goRecFd (L _ HsRecField{ hsRecFieldArg = p }) = go p
 
     merge (vs1, evs1) (vs2, evs2) = (vs1 ++ vs2, evs1 ++ evs2)

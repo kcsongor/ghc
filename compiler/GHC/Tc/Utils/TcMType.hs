@@ -172,28 +172,28 @@ newMetaKindVars n = replicateM n newMetaKindVar
 ************************************************************************
 -}
 
-newEvVars :: TcThetaType -> TcM [EvVar]
+newEvVars :: TcThetaType -> TcM [Scaled EvVar]
 newEvVars theta = mapM newEvVar theta
 
 --------------
 
-newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
+newEvVar :: Scaled TcPredType -> TcRnIf gbl lcl (Scaled EvVar)
 -- Creates new *rigid* variables for predicates
-newEvVar ty = do { name <- newSysName (predTypeOccName ty)
-                 ; return (mkLocalIdOrCoVar name Many ty) }
+newEvVar (Scaled w ty) = do { name <- newSysName (predTypeOccName ty)
+                            ; return (Scaled w (mkLocalIdOrCoVar name w ty)) }
 
-newWanted :: CtOrigin -> Maybe TypeOrKind -> PredType -> TcM CtEvidence
+newWanted :: CtOrigin -> Maybe TypeOrKind -> Scaled PredType -> TcM (Scaled CtEvidence)
 -- Deals with both equality and non-equality predicates
-newWanted orig t_or_k pty
+newWanted orig t_or_k p@(Scaled w pty)
   = do loc <- getCtLocM orig t_or_k
        d <- if isEqPrimPred pty then HoleDest  <$> newCoercionHole pty
-                                else EvVarDest <$> newEvVar pty
-       return $ CtWanted { ctev_dest = d
-                         , ctev_pred = pty
-                         , ctev_nosh = WDeriv
-                         , ctev_loc = loc }
+                                else EvVarDest . scaledThing <$> newEvVar p
+       return . Scaled w $ CtWanted { ctev_dest = d
+                                    , ctev_pred = pty
+                                    , ctev_nosh = WDeriv
+                                    , ctev_loc = loc }
 
-newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
+newWanteds :: CtOrigin -> ThetaType -> TcM [Scaled CtEvidence]
 newWanteds orig = mapM (newWanted orig Nothing)
 
 ----------------------------------------------
@@ -204,7 +204,7 @@ cloneWanted :: Ct -> TcM Ct
 cloneWanted ct
   | ev@(CtWanted { ctev_pred = pty }) <- ctEvidence ct
   = do { co_hole <- newCoercionHole pty
-       ; return (mkNonCanonical (ev { ctev_dest = HoleDest co_hole })) }
+       ; return (mkScaledNonCanonical (cc_mult ct) (ev { ctev_dest = HoleDest co_hole })) }
   | otherwise
   = return ct
 
@@ -230,10 +230,10 @@ cloneImplication implic@(Implic { ic_binds = binds, ic_wanted = inner_wanted })
 ----------------------------------------------
 
 -- | Emits a new Wanted. Deals with both equalities and non-equalities.
-emitWanted :: CtOrigin -> TcPredType -> TcM EvTerm
+emitWanted :: CtOrigin -> Scaled TcPredType -> TcM EvTerm
 emitWanted origin pty
-  = do { ev <- newWanted origin Nothing pty
-       ; emitSimple $ mkNonCanonical ev
+  = do { Scaled w ev <- newWanted origin Nothing pty
+       ; emitSimple $ mkScaledNonCanonical w ev
        ; return $ ctEvTerm ev }
 
 emitDerivedEqs :: CtOrigin -> [(TcType,TcType)] -> TcM ()
@@ -265,21 +265,20 @@ emitWantedEq origin t_or_k role ty1 ty2
 -- | Creates a new EvVar and immediately emits it as a Wanted.
 -- No equality predicates here.
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
-emitWantedEvVar origin ty = emitScaledWantedEvVar origin (Scaled Many ty)
+emitWantedEvVar = emitScaledWantedEvVar Many
 
 -- | Creates a scaled EvVar and emits it as a Wanted.
 -- No equality predicates here.
-emitScaledWantedEvVar :: CtOrigin -> Scaled TcPredType -> TcM EvVar
-emitScaledWantedEvVar origin (Scaled w ty)
-  = do { new_cv <- newEvVar ty
+emitScaledWantedEvVar :: Mult -> CtOrigin -> TcPredType -> TcM EvVar
+emitScaledWantedEvVar w origin ty
+  = do { new_cv <- newEvVar (Scaled w ty)
        ; loc <- getCtLocM origin Nothing
-       ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
+       ; let ctev = CtWanted { ctev_dest = EvVarDest (scaledThing new_cv)
                              , ctev_pred = ty
                              , ctev_nosh = WDeriv
                              , ctev_loc  = loc }
-       ; let ct = mkNonCanonical ctev
-       ; emitSimple $ ct {cc_mult = w}
-       ; return new_cv }
+       ; emitSimple $ mkScaledNonCanonical w ctev
+       ; return (scaledThing new_cv) }
 
 emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]
 emitWantedEvVars orig = mapM (emitWantedEvVar orig)
@@ -358,10 +357,10 @@ withWanteds w1 w2
 
 newCoercionHole :: TcPredType -> TcM CoercionHole
 newCoercionHole pred_ty
-  = do { co_var <- newEvVar pred_ty
+  = do { co_var <- newEvVar (unrestricted pred_ty)
        ; traceTc "New coercion hole:" (ppr co_var)
        ; ref <- newMutVar Nothing
-       ; return $ CoercionHole { ch_co_var = co_var, ch_ref = ref } }
+       ; return $ CoercionHole { ch_co_var = scaledThing co_var, ch_ref = ref } }
 
 -- | Put a value in a coercion hole
 fillCoercionHole :: CoercionHole -> Coercion -> TcM ()
@@ -2295,7 +2294,7 @@ zonkImplication implic@(Implic { ic_skols  = skols
                                , ic_info   = info })
   = do { skols'  <- mapM zonkTyCoVarKind skols  -- Need to zonk their kinds!
                                                 -- as #7230 showed
-       ; given'  <- mapM zonkEvVar given
+       ; given'  <- mapM (traverse zonkEvVar) given
        ; info'   <- zonkSkolemInfo info
        ; wanted' <- zonkWCRec wanted
        ; return (implic { ic_skols  = skols'
@@ -2370,7 +2369,8 @@ zonkCt ct@(CIrredCan { cc_ev = ev }) -- Preserve the cc_status flag
 
 zonkCt ct
   = do { fl' <- zonkCtEvidence (ctEvidence ct)
-       ; return (mkNonCanonical fl') }
+       -- TODO(csongor): zonk multiplicity of Ct here
+       ; return (mkScaledNonCanonical (cc_mult ct) fl') }
 
 zonkCtEvidence :: CtEvidence -> TcM CtEvidence
 zonkCtEvidence ctev@(CtGiven { ctev_pred = pred })
@@ -2571,8 +2571,8 @@ tidyHole :: TidyEnv -> Hole -> Hole
 tidyHole env h@(Hole { hole_ty = ty }) = h { hole_ty = tidyType env ty }
 
 ----------------
-tidyEvVar :: TidyEnv -> EvVar -> EvVar
-tidyEvVar env var = updateIdTypeAndMult (tidyType env) var
+tidyEvVar :: TidyEnv -> Scaled EvVar -> Scaled EvVar
+tidyEvVar env var = fmap (updateIdTypeAndMult (tidyType env)) var
 
 ----------------
 tidySkolemInfo :: TidyEnv -> SkolemInfo -> SkolemInfo

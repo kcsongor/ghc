@@ -665,7 +665,7 @@ AST is used for the subtraction operation.
         -- but it's silly to insist on this in the RebindableSyntax case
         ; unlessM (xoptM LangExt.RebindableSyntax) $
           do { icls <- tcLookupClass integralClassName
-             ; instStupidTheta orig [mkClassPred icls [pat_ty]] }
+             ; instStupidTheta orig [unrestricted  $ mkClassPred icls [pat_ty]] }
 
         ; res <- tcExtendIdEnv1 name bndr_id thing_inside
 
@@ -888,8 +888,8 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty_scaled
           -- Add the stupid theta
         ; setSrcSpan con_span $ addDataConStupidTheta data_con ctxt_res_tys
 
-        ; let all_arg_tys = eqSpecPreds eq_spec ++ theta ++ (map scaledThing arg_tys)
-        ; checkExistentials ex_tvs all_arg_tys penv
+        ; let all_arg_tys = eqSpecPreds eq_spec ++ theta ++ arg_tys
+        ; checkExistentials ex_tvs (map scaledThing all_arg_tys) penv
 
         ; tenv1 <- instTyVarsWith PatOrigin univ_tvs ctxt_res_tys
                   -- NB: Do not use zipTvSubst!  See #14154
@@ -937,7 +937,7 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty_scaled
         { let theta'     = substTheta tenv (eqSpecPreds eq_spec ++ theta)
                            -- order is *important* as we generate the list of
                            -- dictionary binders from theta'
-              no_equalities = null eq_spec && not (any isEqPred theta)
+              no_equalities = null eq_spec && not (any (isEqPred . scaledThing) theta)
               skol_info = PatSkol (RealDataCon data_con) mc
               mc = case pe_ctxt penv of
                      LamPat mc -> mc
@@ -980,7 +980,7 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
 
         ; (subst, univ_tvs') <- newMetaTyVars univ_tvs
 
-        ; let all_arg_tys = ty : prov_theta ++ (map scaledThing arg_tys)
+        ; let all_arg_tys = ty : map scaledThing (prov_theta ++ arg_tys)
         ; checkExistentials ex_tvs all_arg_tys penv
         ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX subst ex_tvs
            -- This freshens: Note [Freshen existentials]

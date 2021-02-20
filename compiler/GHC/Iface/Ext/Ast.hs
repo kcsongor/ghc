@@ -77,6 +77,7 @@ import Control.Monad              ( forM_ )
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class  ( lift )
+import GHC.Core.Multiplicity
 
 {- Note [Updating HieAst for changes in the GHC AST]
 
@@ -961,7 +962,7 @@ instance HiePass p => ToHie (PScoped (Located (Pat (GhcPass p)))) where
                  in concatM [ toHie $ EvBindContext scope rsp $ L ospan ev_binds
                             , toHie $ L ospan wrap
                             , toHie $ map (C (EvidenceVarBind EvPatternBind evscope rsp)
-                                          . L ospan) ev_vars
+                                          . L ospan) (map scaledThing ev_vars)
                             ]
             ]
           HieRn ->

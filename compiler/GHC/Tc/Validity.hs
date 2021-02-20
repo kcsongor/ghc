@@ -742,7 +742,7 @@ check_type ve@(ValidityEnv{ ve_tidy_env = env, ve_ctxt = ctxt
                 -- Reject visible, dependent quantification in the type of a
                 -- term (e.g., `f :: forall a -> a -> Maybe a`)
 
-        ; check_valid_theta env' SigmaCtxt expand theta
+        ; check_valid_theta env' SigmaCtxt expand (map scaledThing theta)
                 -- Allow     type T = ?x::Int => Int -> Int
                 -- but not   type T = ?x::Int
 
@@ -992,7 +992,7 @@ checkConstraintsOK ve theta ty
   | otherwise
   = -- We are in a kind, where we allow only equality predicates
     -- See Note [Constraints in kinds] in GHC.Core.TyCo.Rep, and #16263
-    checkTcM (all isEqPred theta) $
+    checkTcM (all (isEqPred . scaledThing) theta) $
     constraintTyErr (ve_tidy_env ve) ty
 
 constraintTyErr :: TidyEnv -> Type -> (TidyEnv, SDoc)
@@ -1091,9 +1091,9 @@ checkValidTheta :: UserTypeCtxt -> ThetaType -> TcM ()
 -- Assumes argument is fully zonked
 checkValidTheta ctxt theta
   = addErrCtxtM (checkThetaCtxt ctxt theta) $
-    do { env <- tcInitOpenTidyEnv (tyCoVarsOfTypesList theta)
+    do { env <- tcInitOpenTidyEnv (tyCoVarsOfTypesList (map scaledThing theta))
        ; expand <- initialExpandMode
-       ; check_valid_theta env ctxt expand theta }
+       ; check_valid_theta env ctxt expand (map scaledThing theta) }
 
 -------------------------
 check_valid_theta :: TidyEnv -> UserTypeCtxt -> ExpandMode
@@ -1181,7 +1181,7 @@ check_pred_help under_syn env dflags ctxt pred
               -- to box such constraints in GHC.Tc.Utils.TcType.pickQuantifiablePreds, as described
               -- in Note [Lift equality constraints when quantifying] in GHC.Tc.Utils.TcType
 
-      ForAllPred _ theta head -> check_quant_pred env dflags ctxt pred theta head
+      ForAllPred _ theta head -> check_quant_pred env dflags ctxt pred (map unrestricted theta) head
       IrredPred {}            -> check_irred_pred under_syn env dflags ctxt pred
 
 check_eq_pred :: TidyEnv -> DynFlags -> PredType -> TcM ()
@@ -1427,7 +1427,7 @@ Flexibility check:
 checkThetaCtxt :: UserTypeCtxt -> ThetaType -> TidyEnv -> TcM (TidyEnv, SDoc)
 checkThetaCtxt ctxt theta env
   = return ( env
-           , vcat [ text "In the context:" <+> pprTheta (tidyTypes env theta)
+           , vcat [ text "In the context:" <+> pprTheta (map (mapScaledType (tidyType env)) theta)
                   , text "While checking" <+> pprUserTypeCtxt ctxt ] )
 
 eqPredTyErr, predTupleErr, predIrredErr,
@@ -1902,7 +1902,7 @@ checkValidInstance ctxt hs_type ty
 
         ; env0 <- tcInitTidyEnv
         ; expand <- initialExpandMode
-        ; check_valid_theta env0 ctxt expand theta
+        ; check_valid_theta env0 ctxt expand (map scaledThing theta)
 
         -- The Termination and Coverate Conditions
         -- Check that instance inference will terminate (if we care)
@@ -1921,7 +1921,7 @@ checkValidInstance ctxt hs_type ty
 
         ; traceTc "cvi 2" (ppr ty)
 
-        ; case (checkInstCoverage undecidable_ok clas theta inst_tys) of
+        ; case (checkInstCoverage undecidable_ok clas (map scaledThing theta) inst_tys) of
             IsValid      -> return ()   -- Check succeeded
             NotValid msg -> addErrTc (instTypeErr clas inst_tys msg)
 
@@ -1962,7 +1962,7 @@ The underlying idea is that
 checkInstTermination :: ThetaType -> TcPredType -> TcM ()
 -- See Note [Paterson conditions]
 checkInstTermination theta head_pred
-  = check_preds emptyVarSet theta
+  = check_preds emptyVarSet (map scaledThing theta)
   where
    head_fvs  = fvType head_pred
    head_size = sizeType head_pred

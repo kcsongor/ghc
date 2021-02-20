@@ -74,6 +74,7 @@ import GHC.Data.Maybe
 import GHC.Types.Name (Name)
 -- libraries:
 import Data.Data hiding (TyCon,Fixity)
+import GHC.Core.Multiplicity
 
 type LPat p = XRec p (Pat p)
 
@@ -341,7 +342,7 @@ data ConPatTc
     , -- | Ditto *coercion variables* and *dictionaries*
       -- One reason for putting coercion variable here  I think
       --      is to ensure their kinds are zonked
-      cpt_dicts :: [EvVar]
+      cpt_dicts :: [Scaled EvVar]
 
     , -- | Bindings involving those dictionaries
       cpt_binds :: TcEvBinds
@@ -588,7 +589,7 @@ pprPat (ConPat { pat_con = con
           -- Tiresome; in 'GHC.Tc.Gen.Bind.tcRhs' we print out a typechecked Pat in an
           -- error message, and we want to make sure it prints nicely
           ppr con
-            <> braces (sep [ hsep (map pprPatBndr (tvs ++ dicts))
+            <> braces (sep [ hsep (map pprPatBndr (tvs ++ map scaledThing dicts))
                            , ppr binds ])
             <+> pprConArgs details
         where ConPatTc { cpt_tvs = tvs
@@ -914,7 +915,7 @@ collectEvVarsPat pat =
         { cpt_dicts = dicts
         }
       }
-                     -> unionBags (listToBag dicts)
+                     -> unionBags (listToBag (map scaledThing dicts))
                                    $ unionManyBags
                                    $ map collectEvVarsLPat
                                    $ hsConPatArgs args

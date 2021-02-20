@@ -231,17 +231,17 @@ check_inst sig_inst = do
     (tclvl,cts) <- pushTcLevelM $ do
        wanted <- newWanted origin
                            (Just TypeLevel)
-                           (substTy skol_subst pred)
+                           (unrestricted (substTy skol_subst pred))
        givens <- forM theta $ \given -> do
            loc <- getCtLocM origin (Just TypeLevel)
-           let given_pred = substTy skol_subst (scaledThing given)
+           let given_pred = substScaledTy skol_subst given
            new_ev <- newEvVar given_pred
-           return CtGiven { ctev_pred = given_pred
+           return CtGiven { ctev_pred = scaledThing given_pred
                           -- Doesn't matter, make something up
-                          , ctev_evar = new_ev
+                          , ctev_evar = scaledThing new_ev
                           , ctev_loc = loc
                           }
-       return $ wanted : givens
+       return $ wanted : map unrestricted givens
     unsolved <- simplifyWantedsTcM cts
 
     (implic, _) <- buildImplicationFor tclvl skol_info tvs_skols [] unsolved

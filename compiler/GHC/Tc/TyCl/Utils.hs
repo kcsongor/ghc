@@ -593,7 +593,7 @@ irDataCon :: DataCon -> RoleM ()
 irDataCon datacon
   = setRoleInferenceVars univ_tvs $
     irExTyVars ex_tvs $ \ ex_var_set ->
-      do mapM_ (irType ex_var_set) (eqSpecPreds eq_spec ++ theta ++ map scaledThing arg_tys)
+      do mapM_ (irType ex_var_set) (map scaledThing (eqSpecPreds eq_spec ++ theta ++ arg_tys))
          mapM_ (markNominal ex_var_set) (map tyVarKind ex_tvs ++ map scaledMult arg_tys)  -- Field multiplicities are nominal (#18799)
       -- See Note [Role-checking data constructor arguments]
   where
@@ -794,7 +794,7 @@ mkDefaultMethodIds tycons
 mkDefaultMethodType :: Class -> Id -> DefMethSpec Type -> Type
 -- Returns the top-level type of the default method
 mkDefaultMethodType _ sel_id VanillaDM        = idType sel_id
-mkDefaultMethodType cls _   (GenericDM dm_ty) = mkSigmaTy tv_bndrs [pred] dm_ty
+mkDefaultMethodType cls _   (GenericDM dm_ty) = mkSigmaTy tv_bndrs [unrestricted pred] dm_ty
    where
      pred      = mkClassPred cls (mkTyVarTys (binderVars cls_bndrs))
      cls_bndrs = tyConBinders (classTyCon cls)

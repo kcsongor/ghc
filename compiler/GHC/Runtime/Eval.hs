@@ -1095,7 +1095,7 @@ checkForExistence clsInst mb_inst_tys = do
   -- of asking the solver to solve a constraint for clsInst, we ask it to solve the
   -- thetas of clsInst.
   (tys, thetas) <- instDFunType (is_dfun clsInst) mb_inst_tys
-  wanteds <- mapM getDictionaryBindings thetas
+  wanteds <- mapM (traverse getDictionaryBindings) thetas
   -- It's important to zonk constraints after solving in order to expose things like TypeErrors
   -- which otherwise appear as opaque type variables. (See #18262).
   WC { wc_simple = simples, wc_impl = impls } <- simplifyWantedsTcM wanteds
@@ -1132,9 +1132,9 @@ checkForExistence clsInst mb_inst_tys = do
   substInstArgs tys thetas inst = let
       subst = foldl' (\a b -> uncurry (extendTvSubstAndInScope a) b) empty_subst (zip dfun_tvs tys)
       -- Build instance head with arguments substituted in
-      tau   = mkClassPred cls (substTheta subst args)
+      tau   = mkClassPred cls (substTys subst args)
       -- Constrain the instance with any residual constraints
-      phi   = mkPhiTy thetas tau
+      phi   = mkPhiTy (map unrestricted thetas) tau
       sigma = mkForAllTys (map (\v -> Bndr v Inferred) dfun_tvs) phi
 
     in inst { is_dfun = (is_dfun inst) { varType = sigma }}

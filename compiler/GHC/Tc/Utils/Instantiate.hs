@@ -165,7 +165,7 @@ In general,
 topSkolemise :: TcSigmaType
              -> TcM ( HsWrapper
                     , [(Name,TyVar)]     -- All skolemised variables
-                    , [EvVar]            -- All "given"s
+                    , [Scaled EvVar]            -- All "given"s
                     , TcRhoType )
 -- See Note [Skolemisation]
 topSkolemise ty
@@ -180,7 +180,7 @@ topSkolemise ty
       = do { (subst', tvs1) <- tcInstSkolTyVarsX subst tvs
            ; ev_vars1       <- newEvVars (substTheta subst' theta)
            ; go subst'
-                (wrap <.> mkWpTyLams tvs1 <.> mkWpLams ev_vars1)
+                (wrap <.> mkWpTyLams tvs1 <.> mkWpLams (map scaledThing ev_vars1))
                 (tv_prs ++ (map tyVarName tvs `zip` tvs1))
                 (ev_vars ++ ev_vars1)
                 inner_ty }
@@ -231,7 +231,7 @@ instantiateSigma orig tvs theta body_ty
 
       ; return (inst_tvs, wrap, inst_body) }
   where
-    free_tvs = tyCoVarsOfType body_ty `unionVarSet` tyCoVarsOfTypes theta
+    free_tvs = tyCoVarsOfType body_ty `unionVarSet` tyCoVarsOfTypes (map scaledThing theta)
     in_scope = mkInScopeSet (free_tvs `delVarSetList` tvs)
     empty_subst = mkEmptyTCvSubst in_scope
 
@@ -302,14 +302,14 @@ instCallConstraints orig preds
        ; traceTc "instCallConstraints" (ppr evs)
        ; return (mkWpEvApps evs) }
   where
-    go :: TcPredType -> TcM EvTerm
+    go :: Scaled TcPredType -> TcM EvTerm
     go pred
-     | Just (Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut #1
+     | Just (Nominal, ty1, ty2) <- getEqPredTys_maybe (scaledThing pred) -- Try short-cut #1
      = do  { co <- unifyType Nothing ty1 ty2
            ; return (evCoercion co) }
 
        -- Try short-cut #2
-     | Just (tc, args@[_, _, ty1, ty2]) <- splitTyConApp_maybe pred
+     | Just (tc, args@[_, _, ty1, ty2]) <- splitTyConApp_maybe (scaledThing pred)
      , tc `hasKey` heqTyConKey
      = do { co <- unifyType Nothing ty1 ty2
           ; return (evDFunApp (dataConWrapId heqDataCon) args [Coercion co]) }

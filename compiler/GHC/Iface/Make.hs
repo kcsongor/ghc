@@ -506,7 +506,7 @@ tyConToIfaceDecl env tycon
                   ifResKind = if_res_kind,
                   ifCType   = tyConCType tycon,
                   ifRoles   = tyConRoles tycon,
-                  ifCtxt    = tidyToIfaceContext tc_env1 (tyConStupidTheta tycon),
+                  ifCtxt    = tidyToIfaceContext tc_env1 (map unrestricted (tyConStupidTheta tycon)),
                   ifCons    = ifaceConDecls (algTyConRhs tycon),
                   ifGadtSyntax = isGadtSyntaxTyCon tycon,
                   ifParent  = parent })
@@ -629,7 +629,7 @@ classToIfaceDecl env clas
     body | isAbstractTyCon tycon = IfAbstractClass
          | otherwise
          = IfConcreteClass {
-                ifClassCtxt   = tidyToIfaceContext env1 sc_theta,
+                ifClassCtxt   = tidyToIfaceContext env1 (map unrestricted sc_theta),
                 ifATs    = map toIfaceAT clas_ats,
                 ifSigs   = map toIfaceClassOp op_stuff,
                 ifMinDef = fmap getOccFS (classMinimalDef clas)

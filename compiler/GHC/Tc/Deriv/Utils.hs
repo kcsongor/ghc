@@ -442,7 +442,7 @@ data OriginativeDerivStatus
 
 -- | A 'PredType' annotated with the origin of the constraint 'CtOrigin',
 -- and whether or the constraint deals in types or kinds.
-data PredOrigin = PredOrigin PredType CtOrigin TypeOrKind
+data PredOrigin = PredOrigin (Scaled PredType) CtOrigin TypeOrKind
 
 -- | A list of wanted 'PredOrigin' constraints ('to_wanted_origins') to
 -- simplify when inferring a derived instance's context. These are used in all
@@ -529,7 +529,7 @@ instance Outputable ThetaOrigin where
                  , text "to_anyclass_givens =" <+> ppr ac_givens
                  , text "to_wanted_origins  =" <+> ppr wanted_origins ])
 
-mkPredOrigin :: CtOrigin -> TypeOrKind -> PredType -> PredOrigin
+mkPredOrigin :: CtOrigin -> TypeOrKind -> Scaled PredType -> PredOrigin
 mkPredOrigin origin t_or_k pred = PredOrigin pred origin t_or_k
 
 mkThetaOrigin :: CtOrigin -> TypeOrKind
@@ -545,7 +545,7 @@ mkThetaOriginFromPreds = ThetaOrigin [] [] []
 
 substPredOrigin :: HasCallStack => TCvSubst -> PredOrigin -> PredOrigin
 substPredOrigin subst (PredOrigin pred origin t_or_k)
-  = PredOrigin (substTy subst pred) origin t_or_k
+  = PredOrigin (mapScaledType (substTy subst) pred) origin t_or_k
 
 {-
 ************************************************************************
@@ -948,7 +948,7 @@ cond_functorOK allowFunctions allowExQuantifiedLastTyVar _ _ rep_tc
 
   | not (null bad_stupid_theta)
   = NotValid (text "Data type" <+> quotes (ppr rep_tc)
-              <+> text "must not have a class context:" <+> pprTheta bad_stupid_theta)
+              <+> text "must not have a class context:" <+> pprTheta (map unrestricted bad_stupid_theta))
 
   | otherwise
   = allValid (map check_con data_cons)
@@ -969,7 +969,7 @@ cond_functorOK allowFunctions allowExQuantifiedLastTyVar _ _ rep_tc
                 -- in GHC.Tc.Deriv.Functor
       | Just tv <- getTyVar_maybe (last (tyConAppArgs (dataConOrigResTy con)))
       , tv `elem` dataConUnivTyVars con
-      , not (tv `elemVarSet` exactTyCoVarsOfTypes (dataConTheta con))
+      , not (tv `elemVarSet` exactTyCoVarsOfTypes (map scaledThing (dataConTheta con)))
       = IsValid   -- See Note [Check that the type variable is truly universal]
       | otherwise
       = NotValid (badCon con existential)

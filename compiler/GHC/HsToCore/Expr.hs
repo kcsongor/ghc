@@ -769,8 +769,8 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                  out_subst = zipTvSubst univ_tvs out_inst_tys
 
                 -- I'm not bothering to clone the ex_tvs
-           ; eqs_vars   <- mapM newPredVarDs (substTheta in_subst (eqSpecPreds eq_spec))
-           ; theta_vars <- mapM newPredVarDs (substTheta in_subst prov_theta)
+           ; eqs_vars   <- mapM (traverse newPredVarDs) (substTheta in_subst (eqSpecPreds eq_spec))
+           ; theta_vars <- mapM (traverse newPredVarDs) (substTheta in_subst prov_theta)
            ; arg_ids    <- newSysLocalsDs (substScaledTysUnchecked in_subst arg_tys')
            ; let field_labels = conLikeFieldLabels con
                  val_args = zipWithEqual "dsExpr:RecordUpd" mk_val_arg
@@ -780,7 +780,7 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
 
                  inst_con = noLoc $ mkHsWrap wrap (HsConLikeOut noExtField con)
                         -- Reconstruct with the WrapId so that unpacking happens
-                 wrap = mkWpEvVarApps theta_vars                                <.>
+                 wrap = mkWpEvVarApps (map scaledThing theta_vars)                                <.>
                         dict_req_wrap                                           <.>
                         mkWpTyApps    [ lookupTyVar out_subst tv
                                           `orElse` mkTyVarTy tv
@@ -813,7 +813,7 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                                Nothing -> mkTcNomReflCo inst_ty
 
                         eq_spec_env :: VarEnv Coercion
-                        eq_spec_env = mkVarEnv [ (eqSpecTyVar spec, mkTcSymCo (mkTcCoVarCo eqs_var))
+                        eq_spec_env = mkVarEnv [ (eqSpecTyVar spec, mkTcSymCo (mkTcCoVarCo (scaledThing eqs_var)))
                                                | (spec,eqs_var) <- zipEqual "dsExpr:upd2" eq_spec eqs_vars ]
 
                     -- eq_spec is always null for a PatSynCon

@@ -1032,7 +1032,7 @@ pprWithArising []
 pprWithArising (ct:cts)
   | null cts
   = (loc, addArising (ctLocOrigin loc)
-                     (pprTheta [ctPred ct]))
+                     (pprTheta [unrestricted $ ctPred ct]))
   | otherwise
   = (loc, vcat (map ppr_one (ct:cts)))
   where
@@ -1149,7 +1149,7 @@ mkIrredErr :: ReportErrCtxt -> [Ct] -> TcM ErrMsg
 mkIrredErr ctxt cts
   = do { (ctxt, binds_msg, ct1) <- relevantBindings True ctxt ct1
        ; let orig = ctOrigin ct1
-             msg  = couldNotDeduce (getUserGivens ctxt) (map ctPred cts, orig)
+             msg  = couldNotDeduce (getUserGivens ctxt) (map (\ct -> Scaled (cc_mult ct) (ctPred ct)) cts, orig)
        ; mkErrorMsgFromCt ctxt ct1 $
          msg `mappend` mk_relevant_bindings binds_msg }
   where
@@ -1287,7 +1287,7 @@ givenConstraintsMsg ctxt =
         constraints =
           do { implic@Implic{ ic_given = given } <- cec_encl ctxt
              ; constraint <- given
-             ; return (varType constraint, tcl_loc (ic_env implic)) }
+             ; return (varType (scaledThing constraint), tcl_loc (ic_env implic)) }
 
         pprConstraint (constraint, loc) =
           ppr constraint <+> nest 2 (parens (text "from" <+> ppr loc))
@@ -1306,9 +1306,9 @@ mkIPErr ctxt cts
              msg | null givens
                  = important $ addArising orig $
                    sep [ text "Unbound implicit parameter" <> plural cts
-                       , nest 2 (pprParendTheta preds) ]
+                       , nest 2 (pprParendTheta (map unrestricted preds)) ]
                  | otherwise
-                 = couldNotDeduce givens (preds, orig)
+                 = couldNotDeduce givens (map unrestricted preds, orig)
 
        ; mkErrorMsgFromCt ctxt ct1 $
          msg `mappend` mk_relevant_bindings binds_msg }
@@ -1563,7 +1563,7 @@ mkTyVarEqErr' dflags ctxt report ct tv1 ty2
              tclvl_extra = important $
                   nest 2 $
                   sep [ quotes (ppr tv1) <+> text "is untouchable"
-                      , nest 2 $ text "inside the constraints:" <+> pprEvVarTheta given
+                      , nest 2 $ text "inside the constraints:" <+> pprEvVarTheta (map scaledThing given)
                       , nest 2 $ text "bound by" <+> ppr skol_info
                       , nest 2 $ text "at" <+>
                         ppr (tcl_loc (ic_env implic)) ]
@@ -1628,7 +1628,7 @@ misMatchOrCND insoluble_occurs_check ctxt ct ty1 ty2
     misMatchMsg ctxt ct ty1 ty2
 
   | otherwise
-  = mconcat [ couldNotDeduce givens ([eq_pred], orig)
+  = mconcat [ couldNotDeduce givens ([Scaled (cc_mult ct) eq_pred], orig)
             , important $ mk_supplementary_ea_msg ctxt level ty1 ty2 orig ]
   where
     ev      = ctEvidence ct
@@ -1653,7 +1653,7 @@ pp_givens givens
                  : map (ppr_given (text "or from:")) gs
     where
        ppr_given herald implic@(Implic { ic_given = gs, ic_info = skol_info })
-           = hang (herald <+> pprEvVarTheta (mkMinimalBySCs evVarPred gs))
+           = hang (herald <+> pprEvVarTheta (mkMinimalBySCs evVarPred (map scaledThing gs)))
              -- See Note [Suppress redundant givens during error reporting]
              -- for why we use mkMinimalBySCs above.
                 2 (sep [ text "bound by" <+> ppr skol_info
@@ -2490,10 +2490,10 @@ mk_dict_err ctxt@(CEC {cec_encl = implics}) (ct, (matches, unifiers, unsafe_over
                                      ppr (tcl_loc (ic_env implic)) ])
         where ev_vars_matching = [ pred
                                  | ev_var <- evvars
-                                 , let pred = evVarPred ev_var
-                                 , any can_match (pred : transSuperClasses pred) ]
+                                 , let pred = fmap evVarPred ev_var
+                                 , any can_match (pred : traverse transSuperClasses pred) ]
               can_match pred
-                 = case getClassPredTys_maybe pred of
+                 = case getClassPredTys_maybe (scaledThing pred) of
                      Just (clas', tys') -> clas' == clas
                                           && isJust (tcMatchTys tys tys')
                      Nothing -> False

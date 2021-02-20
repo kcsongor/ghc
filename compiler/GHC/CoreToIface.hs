@@ -375,7 +375,7 @@ tidyToIfaceTcArgs :: TidyEnv -> TyCon -> [Type] -> IfaceAppArgs
 tidyToIfaceTcArgs env tc tys = toIfaceTcArgs tc (tidyTypes env tys)
 
 tidyToIfaceContext :: TidyEnv -> ThetaType -> IfaceContext
-tidyToIfaceContext env theta = map (tidyToIfaceType env) theta
+tidyToIfaceContext env theta = map (\(Scaled w t) -> (tidyToIfaceType env w, tidyToIfaceType env t)) theta
 
 {-
 ************************************************************************

@@ -138,7 +138,7 @@ module GHC.Tc.Utils.TcType (
   mkSpecForAllTys, mkTyCoInvForAllTy,
   mkInfForAllTy, mkInfForAllTys,
   mkVisFunTy, mkVisFunTys, mkInvisFunTy, mkInvisFunTyMany,
-  mkVisFunTyMany, mkVisFunTysMany, mkInvisFunTysMany,
+  mkVisFunTyMany, mkVisFunTysMany, mkInvisFunTysMany, mkInvisFunTys,
   mkTyConApp, mkAppTy, mkAppTys,
   mkTyConTy, mkTyVarTy, mkTyVarTys,
   mkTyCoVarTy, mkTyCoVarTys,
@@ -1159,21 +1159,21 @@ findDupTyVarTvs prs
 ************************************************************************
 -}
 
-mkSigmaTy :: [TyCoVarBinder] -> [PredType] -> Type -> Type
+mkSigmaTy :: [TyCoVarBinder] -> [Scaled PredType] -> Type -> Type
 mkSigmaTy bndrs theta tau = mkForAllTys bndrs (mkPhiTy theta tau)
 
 -- | Make a sigma ty where all type variables are 'Inferred'. That is,
 -- they cannot be used with visible type application.
-mkInfSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
+mkInfSigmaTy :: [TyCoVar] -> [Scaled PredType] -> Type -> Type
 mkInfSigmaTy tyvars theta ty = mkSigmaTy (mkTyCoVarBinders Inferred tyvars) theta ty
 
 -- | Make a sigma ty where all type variables are "specified". That is,
 -- they can be used with visible type application
-mkSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
+mkSpecSigmaTy :: [TyVar] -> [Scaled PredType] -> Type -> Type
 mkSpecSigmaTy tyvars preds ty = mkSigmaTy (mkTyCoVarBinders Specified tyvars) preds ty
 
-mkPhiTy :: [PredType] -> Type -> Type
-mkPhiTy = mkInvisFunTysMany
+mkPhiTy :: [Scaled PredType] -> Type -> Type
+mkPhiTy = mkInvisFunTys
 
 ---------------
 getDFunTyKey :: Type -> OccName -- Get some string from a type, to be used to
@@ -1295,13 +1295,13 @@ tcIsForAllTy ty | Just ty' <- tcView ty = tcIsForAllTy ty'
 tcIsForAllTy (ForAllTy {}) = True
 tcIsForAllTy _             = False
 
-tcSplitPredFunTy_maybe :: Type -> Maybe (PredType, Type)
+tcSplitPredFunTy_maybe :: Type -> Maybe (Scaled PredType, Type)
 -- Split off the first predicate argument from a type
 tcSplitPredFunTy_maybe ty
   | Just ty' <- tcView ty = tcSplitPredFunTy_maybe ty'
 tcSplitPredFunTy_maybe (FunTy { ft_af = InvisArg
-                              , ft_arg = arg, ft_res = res })
-  = Just (arg, res)
+                              , ft_arg = arg, ft_res = res, ft_mult = w })
+  = Just (Scaled w arg, res)
 tcSplitPredFunTy_maybe _
   = Nothing
 
@@ -1509,7 +1509,7 @@ tcSplitDFunTy ty
 tcSplitDFunHead :: Type -> (Class, [Type])
 tcSplitDFunHead = getClassPredTys
 
-tcSplitMethodTy :: Type -> ([TyVar], PredType, Type)
+tcSplitMethodTy :: Type -> ([TyVar], Scaled PredType, Type)
 -- A class method (selector) always has a type like
 --   forall as. C as => blah
 -- So if the class looks like
@@ -1763,8 +1763,9 @@ pickQuantifiablePreds qtvs theta
          -- flex_ctxt <- xoptM Opt_FlexibleContexts
     mapMaybe (pick_me flex_ctxt) theta
   where
-    pick_me flex_ctxt pred
-      = case classifyPredType pred of
+    pick_me :: Bool -> Scaled PredType -> Maybe (Scaled PredType)
+    pick_me flex_ctxt pred@(Scaled w pred_ty)
+      = case classifyPredType pred_ty of
 
           ClassPred cls tys
             | Just {} <- isCallStackPred cls tys
@@ -1785,7 +1786,7 @@ pickQuantifiablePreds qtvs theta
             , Just (cls, tys) <- boxEqPred eq_rel ty1 ty2
               -- boxEqPred: See Note [Lift equality constraints when quantifying]
             , pick_cls_pred flex_ctxt cls tys
-            -> Just (mkClassPred cls tys)
+            -> Just (Scaled w (mkClassPred cls tys))
 
           IrredPred ty
             | tyCoVarsOfType ty `intersectsVarSet` qtvs
@@ -1834,7 +1835,7 @@ pickCapturedPreds
 -- the inferred constraints of a group of bindings, into those for
 -- one particular identifier
 pickCapturedPreds qtvs theta
-  = filter captured theta
+  = filter (captured . scaledThing) theta
   where
     captured pred = isIPLikePred pred || (tyCoVarsOfType pred `intersectsVarSet` qtvs)
 
@@ -1921,7 +1922,7 @@ transSuperClasses p
 
 immSuperClasses :: Class -> [Type] -> [PredType]
 immSuperClasses cls tys
-  = substTheta (zipTvSubst tyvars tys) sc_theta
+  = map scaledThing (substTheta (zipTvSubst tyvars tys) (map unrestricted sc_theta))
   where
     (tyvars,sc_theta,_,_) = classBigSig cls
 

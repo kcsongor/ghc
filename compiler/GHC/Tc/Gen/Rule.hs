@@ -36,6 +36,7 @@ import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Data.FastString
 import GHC.Data.Bag
+import GHC.Core.Multiplicity
 
 {-
 Note [Typechecking rules]
@@ -166,9 +167,9 @@ tcRule (HsRule { rd_ext  = ext
        -- (b) so that we bind any soluble ones
        ; let skol_info = RuleSkol name
        ; (lhs_implic, lhs_binds) <- buildImplicationFor tc_lvl skol_info qtkvs
-                                         lhs_evs residual_lhs_wanted
+                                         (map unrestricted lhs_evs) residual_lhs_wanted
        ; (rhs_implic, rhs_binds) <- buildImplicationFor tc_lvl skol_info qtkvs
-                                         lhs_evs rhs_wanted
+                                         (map unrestricted lhs_evs) rhs_wanted
 
        ; emitImplications (lhs_implic `unionBags` rhs_implic)
        ; return $ HsRule { rd_ext = ext
@@ -433,8 +434,8 @@ simplifyRule name tc_lvl lhs_wanted rhs_wanted
       = case dest of
           EvVarDest ev_id -> return ev_id
           HoleDest hole   -> -- See Note [Quantifying over coercion holes]
-                             do { ev_id <- newEvVar pred
-                                ; fillCoercionHole hole (mkTcCoVarCo ev_id)
+                             do { ev_id <- scaledThing <$> newEvVar (Scaled (cc_mult ct) pred)
+                                ; fillCoercionHole hole (mkTcCoVarCo (ev_id))
                                 ; return ev_id }
     mk_quant_ev ct = pprPanic "mk_quant_ev" (ppr ct)
 

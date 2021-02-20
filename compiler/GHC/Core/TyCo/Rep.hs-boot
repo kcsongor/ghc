@@ -16,7 +16,7 @@ type Mult = Type
 
 type PredType = Type
 type Kind = Type
-type ThetaType = [PredType]
+type ThetaType = [Scaled PredType]
 type CoercionN = Coercion
 type MCoercionN = MCoercion
 

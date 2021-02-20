@@ -91,15 +91,15 @@ last time through, so we can skip the classification step.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 canonicalize :: Ct -> TcS (StopOrContinue Ct)
-canonicalize (CNonCanonical { cc_ev = ev })
+canonicalize (CNonCanonical { cc_ev = ev, cc_mult = w })
   = {-# SCC "canNC" #-}
-    canNC ev
+    canNC w ev
 
 canonicalize (CQuantCan (QCI { qci_ev = ev, qci_pend_sc = pend_sc }))
   = canForAll ev pend_sc
 
-canonicalize (CIrredCan { cc_ev = ev })
-  = canNC ev
+canonicalize (CIrredCan { cc_ev = ev, cc_mult = w })
+  = canNC w ev
     -- Instead of rewriting the evidence before classifying, it's possible we
     -- can make progress without the rewrite. Try this first.
     -- For insolubles (all of which are equalities), do /not/ rewrite the arguments
@@ -109,9 +109,9 @@ canonicalize (CIrredCan { cc_ev = ev })
     --    e.g. a ~ [a], where [G] a ~ [Int], can decompose
 
 canonicalize (CDictCan { cc_ev = ev, cc_class  = cls
-                       , cc_tyargs = xis, cc_pend_sc = pend_sc })
+                       , cc_tyargs = xis, cc_pend_sc = pend_sc, cc_mult = w })
   = {-# SCC "canClass" #-}
-    canClass ev cls xis pend_sc
+    canClass w ev cls xis pend_sc
 
 canonicalize (CEqCan { cc_ev     = ev
                      , cc_lhs    = lhs
@@ -120,17 +120,17 @@ canonicalize (CEqCan { cc_ev     = ev
   = {-# SCC "canEqLeafTyVarEq" #-}
     canEqNC ev eq_rel (canEqLHSType lhs) rhs
 
-canNC :: CtEvidence -> TcS (StopOrContinue Ct)
-canNC ev =
+canNC :: Mult -> CtEvidence -> TcS (StopOrContinue Ct)
+canNC w ev =
   case classifyPredType pred of
-      ClassPred cls tys     -> do traceTcS "canEvNC:cls" (ppr cls <+> ppr tys)
-                                  canClassNC ev cls tys
-      EqPred eq_rel ty1 ty2 -> do traceTcS "canEvNC:eq" (ppr ty1 $$ ppr ty2)
+      ClassPred cls tys     -> do traceTcS "canEvNC:cls" (ppr cls <+> ppr tys <+> ppr w)
+                                  canClassNC w ev cls tys
+      EqPred eq_rel ty1 ty2 -> do traceTcS "canEvNC:eq" (ppr ty1 $$ ppr ty2 <+> ppr w)
                                   canEqNC    ev eq_rel ty1 ty2
-      IrredPred {}          -> do traceTcS "canEvNC:irred" (ppr pred)
-                                  canIrred ev
+      IrredPred {}          -> do traceTcS "canEvNC:irred" (ppr pred <+> ppr w)
+                                  canIrred w ev
       ForAllPred tvs th p   -> do traceTcS "canEvNC:forall" (ppr pred)
-                                  canForAllNC ev tvs th p
+                                  canForAllNC ev tvs (map unrestricted th) p
   where
     pred = ctEvPred ev
 
@@ -142,15 +142,15 @@ canNC ev =
 ************************************************************************
 -}
 
-canClassNC :: CtEvidence -> Class -> [Type] -> TcS (StopOrContinue Ct)
+canClassNC :: Mult -> CtEvidence -> Class -> [Type] -> TcS (StopOrContinue Ct)
 -- "NC" means "non-canonical"; that is, we have got here
 -- from a NonCanonical constraint, not from a CDictCan
 -- Precondition: EvVar is class evidence
-canClassNC ev cls tys
+canClassNC w ev cls tys
   | isGiven ev  -- See Note [Eagerly expand given superclasses]
   = do { sc_cts <- mkStrictSuperClasses ev [] [] cls tys
        ; emitWork sc_cts
-       ; canClass ev cls tys False }
+       ; canClass w ev cls tys False }
 
   | isWanted ev
   , Just ip_name <- isCallStackPred cls tys
@@ -167,17 +167,17 @@ canClassNC ev cls tys
                             -- this rule does not fire again.
                             -- See Note [Overview of implicit CallStacks]
 
-       ; new_ev <- newWantedEvVarNC new_loc pred
+       ; new_ev <- newWantedEvVarNC new_loc (Scaled w pred)
 
          -- Then we solve the wanted by pushing the call-site
          -- onto the newly emitted CallStack
        ; let ev_cs = EvCsPushCall func (ctLocSpan loc) (ctEvExpr new_ev)
        ; solveCallStack ev ev_cs
 
-       ; canClass new_ev cls tys False }
+       ; canClass w new_ev cls tys False }
 
   | otherwise
-  = canClass ev cls tys (has_scs cls)
+  = canClass w ev cls tys (has_scs cls)
 
   where
     has_scs cls = not (null (classSCTheta cls))
@@ -194,13 +194,14 @@ solveCallStack ev ev_cs = do
   let ev_tm = mkEvCast cs_tm (wrapIP (ctEvPred ev))
   setEvBindIfWanted ev ev_tm
 
-canClass :: CtEvidence
+canClass :: Mult
+         -> CtEvidence
          -> Class -> [Type]
          -> Bool            -- True <=> un-explored superclasses
          -> TcS (StopOrContinue Ct)
 -- Precondition: EvVar is class evidence
 
-canClass ev cls tys pend_sc
+canClass w ev cls tys pend_sc
   =   -- all classes do *nominal* matching
     ASSERT2( ctEvRole ev == Nominal, ppr ev $$ ppr cls $$ ppr tys )
     do { (xis, cos) <- rewriteArgsNom ev cls_tc tys
@@ -210,7 +211,7 @@ canClass ev cls tys pend_sc
                                      , cc_tyargs = xis
                                      , cc_class = cls
                                      , cc_pend_sc = pend_sc
-                                     , cc_mult = Many }
+                                     , cc_mult = w }
        ; mb <- rewriteEvidence ev xi co
        ; traceTcS "canClass" (vcat [ ppr ev
                                    , ppr xi, ppr mb ])
@@ -499,7 +500,7 @@ makeSuperClasses cts = concatMapM go cts
     go (CQuantCan (QCI { qci_pred = pred, qci_ev = ev }))
       = ASSERT2( isClassPred pred, ppr pred )  -- The cts should all have
                                                -- class pred heads
-        mkStrictSuperClasses ev tvs theta cls tys
+        mkStrictSuperClasses ev tvs (map unrestricted theta) cls tys
       where
         (tvs, theta, cls, tys) = tcSplitDFunTy (ctEvPred ev)
     go ct = pprPanic "makeSuperClasses" (ppr ct)
@@ -526,7 +527,7 @@ mk_strict_superclasses rec_clss (CtGiven { ctev_evar = evar, ctev_loc = loc })
   = concatMapM (do_one_given (mk_given_loc loc)) $
     classSCSelIds cls
   where
-    dict_ids  = mkTemplateLocals theta
+    dict_ids  = mkTemplateLocals (map scaledThing theta)
     size      = sizeTypes tys
 
     do_one_given given_loc sel_id
@@ -542,15 +543,15 @@ mk_strict_superclasses rec_clss (CtGiven { ctev_evar = evar, ctev_loc = loc })
         sc_pred = classMethodInstTy sel_id tys
 
       -- See Note [Nested quantified constraint superclasses]
-    mk_given_desc :: Id -> PredType -> (PredType, EvTerm)
+    mk_given_desc :: Id -> PredType -> (Scaled PredType, EvTerm)
     mk_given_desc sel_id sc_pred
-      = (swizzled_pred, swizzled_evterm)
+      = (unrestricted swizzled_pred, swizzled_evterm)
       where
         (sc_tvs, sc_rho)          = splitForAllTyCoVars sc_pred
         (sc_theta, sc_inner_pred) = splitFunTys sc_rho
 
         all_tvs       = tvs `chkAppend` sc_tvs
-        all_theta     = theta `chkAppend` (map scaledThing sc_theta)
+        all_theta     = theta `chkAppend` sc_theta
         swizzled_pred = mkInfSigmaTy all_tvs all_theta sc_inner_pred
 
         -- evar :: forall tvs. theta => cls tys
@@ -698,9 +699,9 @@ See also Note [Evidence for quantified constraints] in GHC.Core.Predicate.
 ************************************************************************
 -}
 
-canIrred :: CtEvidence -> TcS (StopOrContinue Ct)
+canIrred :: Mult -> CtEvidence -> TcS (StopOrContinue Ct)
 -- Precondition: ty not a tuple and no other evidence form
-canIrred ev
+canIrred w ev
   = do { let pred = ctEvPred ev
        ; traceTcS "can_pred" (text "IrredPred = " <+> ppr pred)
        ; (xi,co) <- rewrite ev pred -- co :: xi ~ pred
@@ -710,13 +711,13 @@ canIrred ev
          -- Code is like the canNC, except
          -- that the IrredPred branch stops work
        ; case classifyPredType (ctEvPred new_ev) of
-           ClassPred cls tys     -> canClassNC new_ev cls tys
+           ClassPred cls tys     -> canClassNC w new_ev cls tys
            EqPred eq_rel ty1 ty2 -> canEqNC new_ev eq_rel ty1 ty2
            ForAllPred tvs th p   -> -- this is highly suspect; Quick Look
                                     -- should never leave a meta-var filled
                                     -- in with a polytype. This is #18987.
                                     do traceTcS "canEvNC:forall" (ppr pred)
-                                       canForAllNC ev tvs th p
+                                       canForAllNC ev tvs (map unrestricted th) p
            IrredPred {}          -> continueWith $
                                     mkIrredCt OtherCIS new_ev } }
 
@@ -825,7 +826,7 @@ canForAll ev pend_sc
          -- (It takes a lot less code to rewrite before decomposing.)
        ; case classifyPredType (ctEvPred new_ev) of
            ForAllPred tvs theta pred
-              -> solveForAll new_ev tvs theta pred pend_sc
+              -> solveForAll new_ev tvs (map unrestricted theta) pred pend_sc
            _  -> pprPanic "canForAll" (ppr new_ev)
     } }
 
@@ -836,14 +837,14 @@ solveForAll ev tvs theta pred pend_sc
   = -- See Note [Solving a Wanted forall-constraint]
     do { let skol_info = QuantCtxtSkol
              empty_subst = mkEmptyTCvSubst $ mkInScopeSet $
-                           tyCoVarsOfTypes (pred:theta) `delVarSetList` tvs
+                           tyCoVarsOfTypes (pred:map scaledThing theta) `delVarSetList` tvs
        ; (subst, skol_tvs) <- tcInstSkolTyVarsX empty_subst tvs
        ; given_ev_vars <- mapM newEvVar (substTheta subst theta)
 
        ; (lvl, (w_id, wanteds))
              <- pushLevelNoWorkList (ppr skol_info) $
                 do { wanted_ev <- newWantedEvVarNC loc $
-                                  substTy subst pred
+                                  unrestricted (substTy subst pred)
                    ; return ( ctEvEvId wanted_ev
                             , unitBag (mkNonCanonical wanted_ev)) }
 
@@ -851,7 +852,7 @@ solveForAll ev tvs theta pred pend_sc
                                        given_ev_vars wanteds
 
       ; setWantedEvTerm dest $
-        EvFun { et_tvs = skol_tvs, et_given = given_ev_vars
+        EvFun { et_tvs = skol_tvs, et_given = map scaledThing given_ev_vars
               , et_binds = ev_binds, et_body = w_id }
 
       ; stopWith ev "Wanted forall-constraint" }
@@ -1516,9 +1517,9 @@ can_eq_app ev s1 t1 s2 t2
   = do { let co   = mkTcCoVarCo evar
              co_s = mkTcLRCo CLeft  co
              co_t = mkTcLRCo CRight co
-       ; evar_s <- newGivenEvVar loc ( mkTcEqPredLikeEv ev s1 s2
+       ; evar_s <- newGivenEvVar loc ( unrestricted $ mkTcEqPredLikeEv ev s1 s2
                                      , evCoercion co_s )
-       ; evar_t <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1 t2
+       ; evar_t <- newGivenEvVar loc ( unrestricted $ mkTcEqPredLikeEv ev t1 t2
                                      , evCoercion co_t )
        ; emitWorkNC [evar_t]
        ; canEqNC evar_s NomEq s1 s2 }
@@ -1862,7 +1863,7 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
            CtGiven { ctev_evar = evar }
              -> do { let ev_co = mkCoVarCo evar
                    ; given_evs <- newGivenEvVars loc $
-                                  [ ( mkPrimEqPredRole r ty1 ty2
+                                  [ ( unrestricted $ mkPrimEqPredRole r ty1 ty2
                                     , evCoercion $ mkNthCo r i ev_co )
                                   | (r, ty1, ty2, i) <- zip4 tc_roles tys1 tys2 [0..]
                                   , r /= Phantom
@@ -2125,7 +2126,7 @@ canEqCanLHSHetero ev eq_rel swapped lhs1 ps_xi1 ki1 xi2 ps_xi2 ki2
     emit_kind_co
       | CtGiven { ctev_evar = evar } <- ev
       = do { let kind_co = maybe_sym $ mkTcKindCo (mkTcCoVarCo evar)  -- :: k2 ~ k1
-           ; kind_ev <- newGivenEvVar kind_loc (kind_pty, evCoercion kind_co)
+           ; kind_ev <- newGivenEvVar kind_loc (unrestricted kind_pty, evCoercion kind_co)
            ; emitWorkNC [kind_ev]
            ; return (ctEvCoercion kind_ev) }
 
@@ -3018,7 +3019,7 @@ rewriteEvidence old_ev new_pred co
   = continueWith (old_ev { ctev_pred = new_pred })
 
 rewriteEvidence ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) new_pred co
-  = do { new_ev <- newGivenEvVar loc (new_pred, new_tm)
+  = do { new_ev <- newGivenEvVar loc (unrestricted new_pred, new_tm)
        ; continueWith new_ev }
   where
     -- mkEvCast optimises ReflCo
@@ -3029,7 +3030,7 @@ rewriteEvidence ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) new_pred c
 rewriteEvidence ev@(CtWanted { ctev_dest = dest
                              , ctev_nosh = si
                              , ctev_loc = loc }) new_pred co
-  = do { mb_new_ev <- newWanted_SI si loc new_pred
+  = do { mb_new_ev <- newWanted_SI si loc (unrestricted new_pred)
                -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one
                -- with the same shadow-info as the existing one (#16735)
@@ -3077,7 +3078,7 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
   = do { let new_tm = evCoercion (lhs_co
                                   `mkTcTransCo` maybeTcSymCo swapped (mkTcCoVarCo old_evar)
                                   `mkTcTransCo` mkTcSymCo rhs_co)
-       ; newGivenEvVar loc' (new_pred, new_tm) }
+       ; newGivenEvVar loc' (unrestricted new_pred, new_tm) }
 
   | CtWanted { ctev_dest = dest, ctev_nosh = si } <- old_ev
   = do { (new_ev, hole_co) <- newWantedEq_SI si loc'

@@ -155,13 +155,13 @@ pprClassPred clas tys = pprTypeApp (classTyCon clas) tys
 
 ------------
 pprTheta :: ThetaType -> SDoc
-pprTheta = pprIfaceContext topPrec . map tidyToIfaceType
+pprTheta = pprIfaceContext topPrec . map (tidyToIfaceType . scaledThing)
 
 pprParendTheta :: ThetaType -> SDoc
-pprParendTheta = pprIfaceContext appPrec . map tidyToIfaceType
+pprParendTheta = pprIfaceContext appPrec . map (tidyToIfaceType . scaledThing)
 
 pprThetaArrowTy :: ThetaType -> SDoc
-pprThetaArrowTy = pprIfaceContextArr . map tidyToIfaceType
+pprThetaArrowTy = pprIfaceContextArr . map (\(Scaled w t) -> (tidyToIfaceType w, tidyToIfaceType t))
 
 ------------------
 pprSigmaType :: Type -> SDoc

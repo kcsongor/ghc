@@ -735,7 +735,7 @@ eqSpecPair :: EqSpec -> (TyVar, Type)
 eqSpecPair (EqSpec tv ty) = (tv, ty)
 
 eqSpecPreds :: [EqSpec] -> ThetaType
-eqSpecPreds spec = [ mkPrimEqPred (mkTyVarTy tv) ty
+eqSpecPreds spec = [ unrestricted $ mkPrimEqPred (mkTyVarTy tv) ty
                    | EqSpec tv ty <- spec ]
 
 -- | Substitute in an 'EqSpec'. Precondition: if the LHS of the EqSpec
@@ -1029,7 +1029,7 @@ mkDataCon name declared_infix prom_info
       -- fresh_names: make sure that the "anonymous" tyvars don't
       -- clash in name or unique with the universal/existential ones.
       -- Tiresome!  And unnecessary because these tyvars are never looked at
-    prom_theta_bndrs = [ mkAnonTyConBinder InvisArg (mkTyVar n t)
+    prom_theta_bndrs = [ mkAnonTyConBinder InvisArg (mkTyVar n (scaledThing t))
      {- Invisible -}   | (n,t) <- fresh_names `zip` theta ]
     prom_arg_bndrs   = [ mkAnonTyConBinder VisArg (mkTyVar n t)
      {- Visible -}     | (n,t) <- dropList theta fresh_names `zip` map scaledThing orig_arg_tys ]
@@ -1040,7 +1040,7 @@ mkDataCon name declared_infix prom_info
 
     roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
                 (univ_tvs ++ ex_tvs)
-            ++ map (const Representational) (theta ++ map scaledThing orig_arg_tys)
+            ++ map (const Representational) (theta ++ orig_arg_tys)
 
 freshNames :: [Name] -> [Name]
 -- Make an infinite list of Names whose Uniques and OccNames
@@ -1126,7 +1126,7 @@ dataConEqSpec con@(MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
   = dataConKindEqSpec con
     ++ eq_spec ++
     [ spec   -- heterogeneous equality
-    | Just (tc, [_k1, _k2, ty1, ty2]) <- map splitTyConApp_maybe theta
+    | Just (tc, [_k1, _k2, ty1, ty2]) <- map (splitTyConApp_maybe . scaledThing) theta
     , tc `hasKey` heqTyConKey
     , spec <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
                     (Just tv1, _) -> [mkEqSpec tv1 ty2]
@@ -1134,7 +1134,7 @@ dataConEqSpec con@(MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
                     _             -> []
     ] ++
     [ spec   -- homogeneous equality
-    | Just (tc, [_k, ty1, ty2]) <- map splitTyConApp_maybe theta
+    | Just (tc, [_k, ty1, ty2]) <- map (splitTyConApp_maybe . scaledThing) theta
     , tc `hasKey` eqTyConKey
     , spec <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
                     (Just tv1, _) -> [mkEqSpec tv1 ty2]
@@ -1374,7 +1374,7 @@ dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
                              dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                              dcOrigResTy = res_ty })
   = mkInvisForAllTys user_tvbs $
-    mkInvisFunTysMany theta $
+    mkInvisFunTys theta $
     mkVisFunTys arg_tys $
     res_ty
 
@@ -1384,7 +1384,7 @@ dataConNonlinearType (MkData { dcUserTyVarBinders = user_tvbs,
                                dcOrigResTy = res_ty })
   = let arg_tys' = map (\(Scaled w t) -> Scaled (case w of One -> Many; _ -> w) t) arg_tys
     in mkInvisForAllTys user_tvbs $
-       mkInvisFunTysMany theta $
+       mkInvisFunTys theta $
        mkVisFunTys arg_tys' $
        res_ty
 
@@ -1449,7 +1449,7 @@ dataConRepArgTys (MkData { dcRep = rep
                          , dcOtherTheta = theta
                          , dcOrigArgTys = orig_arg_tys })
   = case rep of
-      NoDataConRep -> ASSERT( null eq_spec ) (map unrestricted theta) ++ orig_arg_tys
+      NoDataConRep -> ASSERT( null eq_spec ) theta ++ orig_arg_tys
       DCR { dcr_arg_tys = arg_tys } -> arg_tys
 
 -- | The string @package:module.name@ identifying a constructor, which is attached
@@ -1510,7 +1510,7 @@ dataConCannotMatch tys con
                       = False
   | null inst_theta   = False   -- Common
   | all isTyVarTy tys = False   -- Also common
-  | otherwise         = typesCantMatch (concatMap predEqs inst_theta)
+  | otherwise         = typesCantMatch (concatMap (predEqs . scaledThing) inst_theta)
   where
     (_, inst_theta, _) = dataConInstSig con tys
 

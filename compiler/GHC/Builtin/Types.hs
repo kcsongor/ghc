@@ -193,6 +193,7 @@ import GHC.Utils.Panic
 import qualified Data.ByteString.Char8 as BS
 
 import Data.List        ( elemIndex )
+import GHC.Core.Multiplicity
 
 alpha_tyvar :: [TyVar]
 alpha_tyvar = [alphaTyVar]
@@ -1094,7 +1095,7 @@ mk_ctuple arity = (tycon, tuple_con, sc_sel_ids_arr)
                          rhs klass
                          (mkPrelTyConRepName tc_name)
 
-    klass     = mk_ctuple_class tycon sc_theta sc_sel_ids
+    klass     = mk_ctuple_class tycon (map unrestricted sc_theta) sc_sel_ids
     tuple_con = pcDataConW dc_name tvs (map unrestricted sc_theta) tycon
 
     binders = mkTemplateAnonTyConBinders (replicate arity constraintKind)
@@ -1336,7 +1337,7 @@ mk_class tycon sc_pred sc_sel_id
 
 mk_ctuple_class :: TyCon -> ThetaType -> [Id] -> Class
 mk_ctuple_class tycon sc_theta sc_sel_ids
-  = mkClass (tyConName tycon) (tyConTyVars tycon) [] sc_theta sc_sel_ids
+  = mkClass (tyConName tycon) (tyConTyVars tycon) [] (map scaledThing sc_theta) sc_sel_ids
             [] [] (mkAnd []) tycon
 
 {- *********************************************************************

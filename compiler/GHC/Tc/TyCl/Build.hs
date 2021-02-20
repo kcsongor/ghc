@@ -154,14 +154,14 @@ buildDataCon fam_envs src_name declared_infix prom_info src_bangs impl_bangs
 -- the type variables mentioned in the arg_tys
 -- ToDo: Or functionally dependent on?
 --       This whole stupid theta thing is, well, stupid.
-mkDataConStupidTheta :: TyCon -> [Type] -> [TyVar] -> [PredType]
+mkDataConStupidTheta :: TyCon -> [Type] -> [TyVar] -> [Scaled PredType]
 mkDataConStupidTheta tycon arg_tys univ_tvs
   | null stupid_theta = []      -- The common case
-  | otherwise         = filter in_arg_tys stupid_theta
+  | otherwise         = filter (in_arg_tys . scaledThing) stupid_theta
   where
     tc_subst     = zipTvSubst (tyConTyVars tycon)
                               (mkTyVarTys univ_tvs)
-    stupid_theta = substTheta tc_subst (tyConStupidTheta tycon)
+    stupid_theta = substTheta tc_subst (map unrestricted (tyConStupidTheta tycon))
         -- Start by instantiating the master copy of the
         -- stupid theta, taken from the TyCon
 
@@ -187,8 +187,8 @@ buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
     ASSERT2((and [ univ_tvs `equalLength` univ_tvs1
                  , ex_tvs `equalLength` ex_tvs1
                  , pat_ty `eqType` substTy subst (scaledThing pat_ty1)
-                 , prov_theta `eqTypes` substTys subst prov_theta1
-                 , req_theta `eqTypes` substTys subst req_theta1
+                 , map scaledThing prov_theta `eqTypes` substTys subst (map scaledThing prov_theta1)
+                 , map scaledThing req_theta `eqTypes` substTys subst (map scaledThing req_theta1)
                  , compareArgTys arg_tys (substTys subst (map scaledThing arg_tys1))
                  ])
             , (vcat [ ppr univ_tvs <+> twiddle <+> ppr univ_tvs1
@@ -298,7 +298,7 @@ buildClass tycon_name binders roles fds
               args       = sc_sel_names ++ op_names
               op_tys     = [ty | (_,ty,_) <- sig_stuff]
               op_names   = [op | (op,_,_) <- sig_stuff]
-              arg_tys    = sc_theta ++ op_tys
+              arg_tys    = sc_theta ++ map unrestricted op_tys
               rec_tycon  = classTyCon rec_clas
               univ_bndrs = tyConInvisTVBinders binders
               univ_tvs   = binderVars univ_bndrs
@@ -316,7 +316,7 @@ buildClass tycon_name binders roles fds
                                    univ_bndrs
                                    [{- No GADT equalities -}]
                                    [{- No theta -}]
-                                   (map unrestricted arg_tys) -- type classes are unrestricted
+                                   arg_tys
                                    (mkTyConApp rec_tycon (mkTyVarTys univ_tvs))
                                    rec_tycon
                                    (mkTyConTagMap rec_tycon)
@@ -342,7 +342,7 @@ buildClass tycon_name binders roles fds
                 -- type]
 
               ; result = mkClass tycon_name univ_tvs fds
-                                 sc_theta sc_sel_ids at_items
+                                 (map scaledThing sc_theta) sc_sel_ids at_items
                                  op_items mindef tycon
               }
         ; traceIf (text "buildClass" <+> ppr tycon)

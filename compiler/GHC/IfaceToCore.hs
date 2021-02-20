@@ -683,7 +683,7 @@ tc_iface_decl _ _ (IfaceData {ifName = tc_name,
             ; parent' <- tc_parent tc_name mb_parent
             ; cons <- tcIfaceDataCons tc_name tycon binders' rdr_cons
             ; return (mkAlgTyCon tc_name binders' res_kind'
-                                 roles cType stupid_theta
+                                 roles cType (map scaledThing stupid_theta)
                                  cons parent' gadt_syn) }
     ; traceIf (text "tcIfaceDecl4" <+> ppr tycon)
     ; return (ATyCon tycon) }
@@ -777,7 +777,7 @@ tc_iface_decl _parent ignore_prags
               ; buildClass tc_name binders' roles fds (Just (ctxt, ats, sigs, mindef)) }
     ; return (ATyCon (classTyCon cls)) }
   where
-   tc_sc pred = forkM (mk_sc_doc pred) (tcIfaceType pred)
+   tc_sc (w, pred) = forkM (mk_sc_doc pred) (Scaled <$> tcIfaceType w <*> tcIfaceType pred)
         -- The *length* of the superclasses is used by buildClass, and hence must
         -- not be inside the thunk.  But the *content* maybe recursive and hence
         -- must be lazy (via forkM).  Example:
@@ -1341,7 +1341,7 @@ tcIfaceAppArgs = mapM tcIfaceType . appArgsIfaceTypes
 
 -----------------------------------------
 tcIfaceCtxt :: IfaceContext -> IfL ThetaType
-tcIfaceCtxt sts = mapM tcIfaceType sts
+tcIfaceCtxt sts = mapM (\(w, t) -> Scaled <$> tcIfaceType w <*> tcIfaceType t) sts
 
 -----------------------------------------
 tcIfaceTyLit :: IfaceTyLit -> IfL TyLit

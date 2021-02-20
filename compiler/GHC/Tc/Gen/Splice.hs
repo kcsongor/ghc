@@ -772,7 +772,7 @@ runAnnotation target expr = do
                 -- By instantiating the call >here< it gets registered in the
                 -- LIE consulted by tcTopSpliceExpr
                 -- and hence ensures the appropriate dictionary is bound by const_binds
-              ; wrapper <- instCall AnnOrigin [expr_ty] [mkClassPred data_class [expr_ty]]
+              ; wrapper <- instCall AnnOrigin [expr_ty] [unrestricted $ mkClassPred data_class [expr_ty]]
               ; let specialised_to_annotation_wrapper_expr
                       = L loc (mkHsWrap wrapper
                                  (HsVar noExtField (L loc to_annotation_wrapper_id)))
@@ -1774,7 +1774,7 @@ reifyDataCon isGadtDataCon tys dc
            <- freshenTyVarBndrs $
               filterOut (`elemVarSet` eq_spec_tvs) g_univ_tvs
        ; let (tvb_subst, g_user_tvs) = subst_tv_binders univ_subst g_user_tvs'
-             g_theta   = substTys tvb_subst g_theta'
+             g_theta   = substTys tvb_subst (map scaledThing g_theta')
              g_arg_tys = substTys tvb_subst (map scaledThing g_arg_tys')
              g_res_ty  = substTy  tvb_subst g_res_ty'
 
@@ -1806,7 +1806,7 @@ reifyDataCon isGadtDataCon tys dc
        ; let (ex_tvs', theta') | isGadtDataCon = (g_user_tvs, g_theta)
                                | otherwise     = ASSERT( all isTyVar ex_tvs )
                                                  -- no covars for haskell syntax
-                                                 (map mk_specified ex_tvs, theta)
+                                                 (map mk_specified ex_tvs, map scaledThing theta)
              ret_con | null ex_tvs' && null theta' = return main_con
                      | otherwise                   = do
                          { cxt <- reifyCxt theta'
@@ -2156,7 +2156,7 @@ reify_for_all argf ty
   = do let (inv_bndrs, phi) = tcSplitForAllInvisTVBinders ty
        tvbndrs' <- reifyTyVarBndrs inv_bndrs
        let (cxt, tau) = tcSplitPhiTy phi
-       cxt' <- reifyCxt cxt
+       cxt' <- reifyCxt (map scaledThing cxt)
        tau' <- reifyType tau
        pure $ TH.ForallT tvbndrs' cxt' tau'
 
@@ -2174,9 +2174,9 @@ reifyPatSynType
 -- Haskell]
 reifyPatSynType (univTyVars, req, exTyVars, prov, argTys, resTy)
   = do { univTyVars' <- reifyTyVarBndrs univTyVars
-       ; req'        <- reifyCxt req
+       ; req'        <- reifyCxt (map scaledThing req)
        ; exTyVars'   <- reifyTyVarBndrs exTyVars
-       ; prov'       <- reifyCxt prov
+       ; prov'       <- reifyCxt (map scaledThing prov)
        ; tau'        <- reifyType (mkVisFunTys argTys resTy)
        ; return $ TH.ForallT univTyVars' req'
                 $ TH.ForallT exTyVars' prov' tau' }

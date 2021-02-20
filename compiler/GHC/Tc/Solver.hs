@@ -68,6 +68,7 @@ import Control.Monad
 import Data.Foldable      ( toList )
 import Data.List          ( partition )
 import Data.List.NonEmpty ( NonEmpty(..) )
+import GHC.Core.Multiplicity
 
 {-
 *********************************************************************************
@@ -772,7 +773,7 @@ simplifyDefault theta
        ; return () }
 
 ------------------
-tcCheckSatisfiability :: InertSet -> Bag EvVar -> TcM (Maybe InertSet)
+tcCheckSatisfiability :: InertSet -> Bag (Scaled EvVar) -> TcM (Maybe InertSet)
 -- Return (Just new_inerts) if satisfiable, Nothing if definitely contradictory
 tcCheckSatisfiability inerts given_ids = do
   (sat, new_inerts) <- runTcSInerts inerts $ do
@@ -901,7 +902,7 @@ simplifyInfer :: TcLevel               -- Used when generating the constraints
                                        -- and their tau-types
               -> WantedConstraints
               -> TcM ([TcTyVar],    -- Quantify over these type variables
-                      [EvVar],      -- ... and these constraints (fully zonked)
+                      [Scaled EvVar],      -- ... and these constraints (fully zonked)
                       TcEvBinds,    -- ... binding these evidence variables
                       Bool)         -- True <=> the residual constraints are insoluble
 
@@ -914,7 +915,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
               psig_theta  = [ pred | sig <- partial_sigs
                                    , pred <- sig_inst_theta sig ]
 
-       ; dep_vars <- candidateQTyVarsOfTypes (psig_tv_tys ++ psig_theta ++ map snd name_taus)
+       ; dep_vars <- candidateQTyVarsOfTypes (psig_tv_tys ++ map scaledThing psig_theta ++ map snd name_taus)
        ; qtkvs <- quantifyTyVars dep_vars
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], emptyTcEvBinds, False) }
@@ -993,7 +994,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
 --------------------
 emitResidualConstraints :: TcLevel -> EvBindsVar
                         -> [(Name, TcTauType)]
-                        -> VarSet -> [TcTyVar] -> [EvVar]
+                        -> VarSet -> [TcTyVar] -> [Scaled EvVar]
                         -> WantedConstraints -> TcM ()
 -- Emit the remaining constraints from the RHS.
 emitResidualConstraints rhs_tclvl ev_binds_var
@@ -1027,7 +1028,7 @@ emitResidualConstraints rhs_tclvl ev_binds_var
         ; emitConstraints (emptyWC { wc_simple = outer_simple
                                    , wc_impl   = implics }) }
   where
-    full_theta = map idType full_theta_vars
+    full_theta = map (fmap idType) full_theta_vars
     skol_info = InferSkol [ (name, mkSigmaTy [] full_theta ty)
                           | (name, ty) <- name_taus ]
     -- We don't add the quantified variables here, because they are
@@ -1035,9 +1036,9 @@ emitResidualConstraints rhs_tclvl ev_binds_var
     -- uniformly.
 
 --------------------
-ctsPreds :: Cts -> [PredType]
-ctsPreds cts = [ ctEvPred ev | ct <- bagToList cts
-                             , let ev = ctEvidence ct ]
+ctsPreds :: Cts -> [Scaled PredType]
+ctsPreds cts = [ Scaled (cc_mult ct) (ctEvPred ev) | ct <- bagToList cts
+                                                   , let ev = ctEvidence ct ]
 
 findInferredDiff :: TcThetaType -> TcThetaType -> TcM TcThetaType
 findInferredDiff annotated_theta inferred_theta
@@ -1050,23 +1051,23 @@ findInferredDiff annotated_theta inferred_theta
 
        ; residual <- runTcSDeriveds $
                      do { _ <- solveSimpleGivens given_cts
-                        ; solveSimpleWanteds (listToBag (map mkNonCanonical wanteds)) }
+                        ; solveSimpleWanteds (listToBag (map (\(Scaled w c) -> mkScaledNonCanonical w c) wanteds)) }
          -- NB: There are no meta tyvars fromn this level annotated_theta
          -- because we have either promoted them or unified them
          -- See `Note [Quantification and partial signatures]` Wrinkle 2
 
-       ; return (map (box_pred . ctPred) $
+       ; return (map box_pred $
                  bagToList               $
                  wc_simple residual) }
   where
-     box_pred :: PredType -> PredType
-     box_pred pred = case classifyPredType pred of
+     box_pred :: Ct -> Scaled PredType
+     box_pred ct = case classifyPredType (ctPred ct) of
                         EqPred rel ty1 ty2
                           | Just (cls,tys) <- boxEqPred rel ty1 ty2
-                          -> mkClassPred cls tys
+                          -> Scaled (cc_mult ct) (mkClassPred cls tys)
                           | otherwise
-                          -> pprPanic "findInferredDiff" (ppr pred)
-                        _other -> pred
+                          -> pprPanic "findInferredDiff" (ppr (ctPred ct))
+                        _other -> Scaled (cc_mult ct) (ctPred ct)
 
 {- Note [Emitting the residual implication in simplifyInfer]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1175,9 +1176,9 @@ decideQuantification
   -> TcLevel
   -> [(Name, TcTauType)]   -- Variables to be generalised
   -> [TcIdSigInst]         -- Partial type signatures (if any)
-  -> [PredType]            -- Candidate theta; already zonked
+  -> [Scaled PredType]            -- Candidate theta; already zonked
   -> TcM ( [TcTyVar]       -- Quantify over these (skolems)
-         , [PredType]      -- and this context (fully zonked)
+         , [Scaled PredType]      -- and this context (fully zonked)
          , VarSet)
 -- See Note [Deciding quantification]
 decideQuantification infer_mode rhs_tclvl name_taus psigs candidates
@@ -1196,12 +1197,12 @@ decideQuantification infer_mode rhs_tclvl name_taus psigs candidates
        --         predicates to actually quantify over
        -- NB: decideQuantifiedTyVars turned some meta tyvars
        -- into quantified skolems, so we have to zonk again
-       ; candidates <- TcM.zonkTcTypes candidates
-       ; psig_theta <- TcM.zonkTcTypes (concatMap sig_inst_theta psigs)
+       ; candidates <- mapM (traverse TcM.zonkTcType) candidates
+       ; psig_theta <- mapM (traverse TcM.zonkTcType) (concatMap sig_inst_theta psigs)
        ; let quantifiable_candidates
                = pickQuantifiablePreds (mkVarSet qtvs) candidates
 
-             theta = mkMinimalBySCs id $  -- See Note [Minimize by Superclasses]
+             theta = mkMinimalBySCs scaledThing $  -- See Note [Minimize by Superclasses]
                      psig_theta ++ quantifiable_candidates
              -- NB: add psig_theta back in here, even though it's already
              -- part of candidates, because we always want to quantify over
@@ -1224,8 +1225,8 @@ decideQuantification infer_mode rhs_tclvl name_taus psigs candidates
 decideMonoTyVars :: InferMode
                  -> [(Name,TcType)]
                  -> [TcIdSigInst]
-                 -> [PredType]
-                 -> TcM (TcTyCoVarSet, [PredType], CoVarSet)
+                 -> [Scaled PredType]
+                 -> TcM (TcTyCoVarSet, [Scaled PredType], CoVarSet)
 -- Decide which tyvars and covars cannot be generalised:
 --   (a) Free in the environment
 --   (b) Mentioned in a constraint we can't generalise
@@ -1241,7 +1242,7 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                       concatMap (map snd . sig_inst_skols) psigs
 
        ; psig_theta <- mapM TcM.zonkTcType $
-                       concatMap sig_inst_theta psigs
+                       concatMap (map scaledThing . sig_inst_theta) psigs
 
        ; taus <- mapM (TcM.zonkTcType . snd) name_taus
 
@@ -1257,7 +1258,7 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                --       quantify over k either!  Hence closeOverKinds
 
              mono_tvs0 = filterVarSet (not . isQuantifiableTv tc_lvl) $
-                         tyCoVarsOfTypes candidates
+                         tyCoVarsOfTypes (map scaledThing candidates)
                -- We need to grab all the non-quantifiable tyvars in the
                -- candidates so that we can grow this set to find other
                -- non-quantifiable tyvars. This can happen with something
@@ -1272,12 +1273,12 @@ decideMonoTyVars infer_mode name_taus psigs candidates
 
              mono_tvs1 = mono_tvs0 `unionVarSet` co_var_tvs
 
-             eq_constraints = filter isEqPrimPred candidates
+             eq_constraints = filter (isEqPrimPred . scaledThing) candidates
              mono_tvs2      = growThetaTyVars eq_constraints mono_tvs1
 
              constrained_tvs = filterVarSet (isQuantifiableTv tc_lvl) $
                                (growThetaTyVars eq_constraints
-                                               (tyCoVarsOfTypes no_quant)
+                                               (tyCoVarsOfTypes (map scaledThing no_quant))
                                 `minusVarSet` mono_tvs2)
                                `delVarSetList` psig_qtvs
              -- constrained_tvs: the tyvars that we are not going to
@@ -1314,7 +1315,7 @@ decideMonoTyVars infer_mode name_taus psigs candidates
 
        ; return (mono_tvs, maybe_quant, co_vars) }
   where
-    pick :: InferMode -> [PredType] -> TcM ([PredType], [PredType])
+    pick :: InferMode -> [Scaled PredType] -> TcM ([Scaled PredType], [Scaled PredType])
     -- Split the candidates into ones we definitely
     -- won't quantify, and ones that we might
     pick NoRestrictions  cand = return ([], cand)
@@ -1325,7 +1326,7 @@ decideMonoTyVars infer_mode name_taus psigs candidates
     -- For EagerDefaulting, do not quantify over
     -- over any interactive class constraint
     is_int_ct ovl_strings pred
-      | Just (cls, _) <- getClassPredTys_maybe pred
+      | Just (cls, _) <- getClassPredTys_maybe (scaledThing pred)
       = isInteractiveClass ovl_strings cls
       | otherwise
       = False
@@ -1342,8 +1343,8 @@ decideMonoTyVars infer_mode name_taus psigs candidates
 -------------------
 defaultTyVarsAndSimplify :: TcLevel
                          -> TyCoVarSet
-                         -> [PredType]          -- Assumed zonked
-                         -> TcM [PredType]      -- Guaranteed zonked
+                         -> [Scaled PredType]          -- Assumed zonked
+                         -> TcM [Scaled PredType]      -- Guaranteed zonked
 -- Default any tyvar free in the constraints,
 -- and re-simplify in case the defaulting allows further simplification
 defaultTyVarsAndSimplify rhs_tclvl mono_tvs candidates
@@ -1354,7 +1355,7 @@ defaultTyVarsAndSimplify rhs_tclvl mono_tvs candidates
 
        -- Default any kind/levity vars
        ; DV {dv_kvs = cand_kvs, dv_tvs = cand_tvs}
-                <- candidateQTyVarsOfTypes candidates
+                <- candidateQTyVarsOfTypes (map scaledThing candidates)
                 -- any covars should already be handled by
                 -- the logic in decideMonoTyVars, which looks at
                 -- the constraints generated
@@ -1368,7 +1369,7 @@ defaultTyVarsAndSimplify rhs_tclvl mono_tvs candidates
 
        ; case () of
            _ | some_default -> simplify_cand candidates
-             | any_promoted -> mapM TcM.zonkTcType candidates
+             | any_promoted -> mapM (\(Scaled w c) -> Scaled w <$> TcM.zonkTcType c) candidates
              | otherwise    -> return candidates
        }
   where
@@ -1380,6 +1381,7 @@ defaultTyVarsAndSimplify rhs_tclvl mono_tvs candidates
       | otherwise
       = defaultTyVar (not poly_kinds && is_kind_var) tv
 
+    simplify_cand :: [Scaled PredType] -> TcM [Scaled PredType]
     simplify_cand candidates
       = do { clone_wanteds <- newWanteds DefaultOrigin candidates
            ; WC { wc_simple = simples } <- setTcLevel rhs_tclvl $
@@ -1396,7 +1398,7 @@ defaultTyVarsAndSimplify rhs_tclvl mono_tvs candidates
 decideQuantifiedTyVars
    :: [(Name,TcType)]   -- Annotated theta and (name,tau) pairs
    -> [TcIdSigInst]     -- Partial signatures
-   -> [PredType]        -- Candidates, zonked
+   -> [Scaled PredType]        -- Candidates, zonked
    -> TcM [TyVar]
 -- Fix what tyvars we are going to quantify over, and quantify them
 decideQuantifiedTyVars name_taus psigs candidates
@@ -1405,8 +1407,8 @@ decideQuantifiedTyVars name_taus psigs candidates
              --     Wrinkles 2 and 3
        ; psig_tv_tys <- mapM TcM.zonkTcTyVar [ tv | sig <- psigs
                                                   , (_,Bndr tv _) <- sig_inst_skols sig ]
-       ; psig_theta <- mapM TcM.zonkTcType [ pred | sig <- psigs
-                                                  , pred <- sig_inst_theta sig ]
+       ; psig_theta <- mapM TcM.zonkTcType [ scaledThing pred | sig <- psigs
+                                                              , pred <- sig_inst_theta sig ]
        ; tau_tys  <- mapM (TcM.zonkTcType . snd) name_taus
 
        ; let -- Try to quantify over variables free in these types
@@ -1423,7 +1425,7 @@ decideQuantifiedTyVars name_taus psigs candidates
        -- them in that order, so that the final qtvs quantifies in the same
        -- order as the partial signatures do (#13524)
        ; dv@DV {dv_kvs = cand_kvs, dv_tvs = cand_tvs} <- candidateQTyVarsOfTypes $
-                                                         psig_tys ++ candidates ++ tau_tys
+                                                         psig_tys ++ map scaledThing candidates ++ tau_tys
        ; let pick     = (`dVarSetIntersectVarSet` grown_tcvs)
              dvs_plus = dv { dv_kvs = pick cand_kvs, dv_tvs = pick cand_tvs }
 
@@ -1448,7 +1450,7 @@ growThetaTyVars theta tcvs
   | otherwise  = transCloVarSet mk_next seed_tcvs
   where
     seed_tcvs = tcvs `unionVarSet` tyCoVarsOfTypes ips
-    (ips, non_ips) = partition isIPLikePred theta
+    (ips, non_ips) = partition isIPLikePred (map scaledThing theta)
                          -- See Note [Inheriting implicit parameters] in GHC.Tc.Utils.TcType
 
     mk_next :: VarSet -> VarSet -- Maps current set to newly-grown ones
@@ -1663,7 +1665,7 @@ This only half-works, but then let-generalisation only half-works.
 
 -}
 
-simplifyWantedsTcM :: [CtEvidence] -> TcM WantedConstraints
+simplifyWantedsTcM :: [Scaled CtEvidence] -> TcM WantedConstraints
 -- Solve the specified Wanted constraints
 -- Discard the evidence binds
 -- Discards all Derived stuff in result
@@ -1941,8 +1943,9 @@ setImplicationStatus implic@(Implic { ic_status     = status
 
       ; bad_telescope <- checkBadTelescope implic
 
+      -- TODO(csongor): throw error for unconsumed linear givens
       ; let dead_givens | warnRedundantGivens info
-                        = filterOut (`elemVarSet` need_inner) givens
+                        = filterOut (\g -> elemVarSet (scaledThing g) need_inner) givens
                         | otherwise = []   -- None to report
 
             discard_entire_implication  -- Can we discard the entire implication?
@@ -1953,7 +1956,7 @@ setImplicationStatus implic@(Implic { ic_status     = status
 
             final_status
               | bad_telescope = IC_BadTelescope
-              | otherwise     = IC_Solved { ics_dead = dead_givens }
+              | otherwise     = IC_Solved { ics_dead = map scaledThing dead_givens }
             final_implic = implic { ic_status = final_status
                                   , ic_wanted = pruned_wc }
 
@@ -2056,7 +2059,7 @@ neededEvVars implic@(Implic { ic_given = givens
             need_inner    = findNeededEvVars ev_binds seeds3
             live_ev_binds = filterEvBindMap (needed_ev_bind need_inner) ev_binds
             need_outer    = varSetMinusEvBindMap need_inner live_ev_binds
-                            `delVarSetList` givens
+                            `delVarSetList` map scaledThing givens
 
       ; TcS.setTcEvBindsMap ev_binds_var live_ev_binds
            -- See Note [Delete dead Given evidence bindings]
@@ -2586,7 +2589,7 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
       = do { lcl_env <- TcS.getLclEnv
            ; tc_lvl <- TcS.getTcLevel
            ; let loc = mkGivenLoc tc_lvl UnkSkol lcl_env
-           ; wanted_evs <- mapM (newWantedEvVarNC loc . substTy subst . ctPred)
+           ; wanted_evs <- mapM (newWantedEvVarNC loc . substScaledTy subst . (\ct -> Scaled (cc_mult ct) (ctPred ct)))
                                 wanteds
            ; fmap isEmptyWC $
              solveSimpleWanteds $ listToBag $

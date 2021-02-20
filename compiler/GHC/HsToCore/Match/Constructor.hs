@@ -39,6 +39,7 @@ import GHC.Utils.Panic
 import Control.Monad(liftM)
 import Data.List (groupBy)
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Bifunctor
 
 {-
 We are confronted with the first column of patterns in a set of
@@ -166,7 +167,7 @@ matchOneConLike vars ty mult (eqn1 :| eqns)   -- All eqns for a single construct
                              }))
                 = do ds_bind <- dsTcEvBinds bind
                      return ( wrapBinds (tvs `zip` tvs1)
-                            . wrapBinds (ds  `zip` dicts1)
+                            . wrapBinds (map (bimap scaledThing scaledThing) (ds  `zip` dicts1))
                             . mkCoreLets ds_bind
                             , eqn { eqn_orig = Generated
                                   , eqn_pats = conArgPats val_arg_tys args ++ pats }
@@ -192,7 +193,7 @@ matchOneConLike vars ty mult (eqn1 :| eqns)   -- All eqns for a single construct
         ; match_results <- mapM (match_group arg_vars) groups
 
         ; return $ MkCaseAlt{ alt_pat = con1,
-                              alt_bndrs = tvs1 ++ dicts1 ++ arg_vars,
+                              alt_bndrs = tvs1 ++ map scaledThing dicts1 ++ arg_vars,
                               alt_wrapper = wrapper1,
                               alt_result = foldr1 combineMatchResults match_results } }
   where

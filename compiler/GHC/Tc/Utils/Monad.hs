@@ -214,6 +214,7 @@ import Control.Monad
 import {-# SOURCE #-} GHC.Tc.Utils.Env    ( tcInitTidyEnv )
 
 import qualified Data.Map as Map
+import GHC.Stack (prettyCallStack, callStack)
 
 {-
 ************************************************************************
@@ -1285,10 +1286,10 @@ tcCollectingUsage thing_inside
 
 -- | @tcScalingUsage mult thing_inside@ runs @thing_inside@ and scales all the
 -- usage information by @mult@.
-tcScalingUsage :: Mult -> TcM a -> TcM a
+tcScalingUsage :: HasCallStack => Mult -> TcM a -> TcM a
 tcScalingUsage mult thing_inside
   = do { (usage, (result, constraints)) <- tcCollectingUsage (captureConstraints thing_inside)
-       ; traceTc "tcScalingUsage" (ppr mult)
+       ; traceTc "tcScalingUsage" (ppr mult <+> ppr (prettyCallStack callStack))
        ; tcEmitBindingUsage $ scaleUE mult usage
        ; emitConstraints (scaleWanteds mult constraints)
        ; return result }

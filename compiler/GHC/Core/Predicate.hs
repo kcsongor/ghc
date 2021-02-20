@@ -52,7 +52,7 @@ data Pred
   = ClassPred Class [Type]
   | EqPred EqRel Type Type
   | IrredPred PredType
-  | ForAllPred [TyVar] [PredType] PredType
+  | ForAllPred [TyVar] [PredType] PredType -- TODO(csongor): these PredTypes will have to be scaled too
      -- ForAllPred: see Note [Quantified constraints] in GHC.Tc.Solver.Canonical
   -- NB: There is no TuplePred case
   --     Tuple predicates like (Eq a, Ord b) are just treated

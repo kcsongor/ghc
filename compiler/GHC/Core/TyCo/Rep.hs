@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE CPP                #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
@@ -50,7 +53,7 @@ module GHC.Core.TyCo.Rep (
         mkFunTyMany,
         mkScaledFunTy,
         mkVisFunTyMany, mkVisFunTysMany,
-        mkInvisFunTyMany, mkInvisFunTysMany,
+        mkInvisFunTyMany, mkInvisFunTys, mkInvisFunTysMany,
         mkTyConApp,
         tYPE,
 
@@ -899,7 +902,7 @@ see Note [Required quantifiers in the type of a term] in GHC.Tc.Gen.Expr.
 type PredType = Type
 
 -- | A collection of 'PredType's
-type ThetaType = [PredType]
+type ThetaType = [Scaled PredType]
 
 {-
 (We don't support TREX records yet, but the setup is designed
@@ -971,6 +974,9 @@ mkInvisFunTyMany = mkInvisFunTy manyDataConTy
 -- | Make nested arrow types
 mkVisFunTys :: [Scaled Type] -> Type -> Type
 mkVisFunTys tys ty = foldr (mkScaledFunTy VisArg) ty tys
+
+mkInvisFunTys :: [Scaled Type] -> Type -> Type
+mkInvisFunTys tys ty = foldr (mkScaledFunTy InvisArg) ty tys
 
 mkVisFunTysMany :: [Type] -> Type -> Type
 mkVisFunTysMany tys ty = foldr mkVisFunTyMany ty tys
@@ -2013,12 +2019,13 @@ GHC.Core.Multiplicity above this module.
 
 -- | A shorthand for data with an attached 'Mult' element (the multiplicity).
 data Scaled a = Scaled Mult a
-  deriving (Data.Data)
+  deriving (Data.Data, Functor, Foldable, Traversable)
   -- You might think that this would be a natural candidate for
   -- Functor, Traversable but Krzysztof says (!3674) "it was too easy
   -- to accidentally lift functions (substitutions, zonking etc.) from
   -- Type -> Type to Scaled Type -> Scaled Type, ignoring
   -- multiplicities and causing bugs".  So we don't.
+  -- TODO(csongor): I yolo'd these instances - remove them
 
 
 instance (Outputable a) => Outputable (Scaled a) where

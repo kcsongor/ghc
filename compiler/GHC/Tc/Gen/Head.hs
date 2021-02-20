@@ -663,7 +663,7 @@ tcExprSig expr sig@(PartialSig { psig_name = name, sig_loc = loc })
                  <- simplifyInfer tclvl infer_mode [sig_inst] [(name, tau)] wanted
 
        ; tau <- zonkTcType tau
-       ; let inferred_theta = map evVarPred givens
+       ; let inferred_theta = map (fmap evVarPred) givens
              tau_tvs        = tyCoVarsOfType tau
        ; (binders, my_theta) <- chooseInferredQuantifiers inferred_theta
                                    tau_tvs qtvs (Just sig_inst)
@@ -678,7 +678,7 @@ tcExprSig expr sig@(PartialSig { psig_name = name, sig_loc = loc })
        ; traceTc "tcExpSig" (ppr qtvs $$ ppr givens $$ ppr inferred_sigma $$ ppr my_sigma)
        ; let poly_wrap = wrap
                          <.> mkWpTyLams qtvs
-                         <.> mkWpLams givens
+                         <.> mkWpLams (map scaledThing givens)
                          <.> mkWpLet  ev_binds
        ; return (mkLHsWrap poly_wrap expr', my_sigma) }
 
@@ -838,11 +838,11 @@ tc_infer_id id_name
                            }
                False -> let scaled_arg_tys = scaleArgs args
                             wrap1 = mkWpTyApps (mkTyVarTys $ binderVars tvs)
-                            eta_wrap = etaWrapper (map unrestricted theta ++ scaled_arg_tys)
+                            eta_wrap = etaWrapper (theta ++ scaled_arg_tys)
                             wrap2 = mkWpTyLams $ binderVars tvs
                         in return ( mkHsWrap (wrap2 <.> eta_wrap <.> wrap1)
                                              (HsConLikeOut noExtField (RealDataCon con))
-                                  , mkInvisForAllTys tvs $ mkInvisFunTysMany theta $ mkVisFunTys scaled_arg_tys res)
+                                  , mkInvisForAllTys tvs $ mkInvisFunTys theta $ mkVisFunTys scaled_arg_tys res)
            }
 
 check_local_id :: Id -> TcM ()
