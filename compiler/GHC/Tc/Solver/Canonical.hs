@@ -209,7 +209,8 @@ canClass ev cls tys pend_sc
              mk_ct new_ev = CDictCan { cc_ev = new_ev
                                      , cc_tyargs = xis
                                      , cc_class = cls
-                                     , cc_pend_sc = pend_sc }
+                                     , cc_pend_sc = pend_sc
+                                     , cc_mult = Many }
        ; mb <- rewriteEvidence ev xi co
        ; traceTcS "canClass" (vcat [ ppr ev
                                    , ppr xi, ppr mb ])
@@ -644,7 +645,7 @@ mk_superclasses_of rec_clss ev tvs theta cls tys
 
     this_ct | null tvs, null theta
             = CDictCan { cc_ev = ev, cc_class = cls, cc_tyargs = tys
-                       , cc_pend_sc = loop_found }
+                       , cc_pend_sc = loop_found, cc_mult = Many }
                  -- NB: If there is a loop, we cut off, so we have not
                  --     added the superclasses, hence cc_pend_sc = True
             | otherwise
@@ -2411,7 +2412,8 @@ canEqCanLHSFinish ev eq_rel swapped lhs rhs
            CanEqOK ->
              do { traceTcS "canEqOK" (ppr lhs $$ ppr rhs)
                 ; continueWith (CEqCan { cc_ev = new_ev, cc_lhs = lhs
-                                       , cc_rhs = rhs, cc_eq_rel = eq_rel }) }
+                                       , cc_rhs = rhs, cc_eq_rel = eq_rel
+                                       , cc_mult = Many }) }
        -- it is possible that cc_rhs mentions the LHS if the LHS is a type
        -- family. This will cause later rewriting to potentially loop, but
        -- that will be caught by the depth counter. The other option is an
@@ -2436,7 +2438,8 @@ canEqCanLHSFinish ev eq_rel swapped lhs rhs
                                         (ppr new_new_ev)
                              ; continueWith (mkIrredCt status new_ev) }
                      else continueWith (CEqCan { cc_ev = new_new_ev, cc_lhs = lhs
-                                               , cc_rhs = new_rhs, cc_eq_rel = eq_rel }) }
+                                               , cc_rhs = new_rhs, cc_eq_rel = eq_rel
+                                               , cc_mult = Many }) }
 
                -- We must not use it for further rewriting!
              | otherwise

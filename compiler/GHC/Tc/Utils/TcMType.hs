@@ -39,7 +39,7 @@ module GHC.Tc.Utils.TcMType (
   -- Creating new evidence variables
   newEvVar, newEvVars, newDict,
   newWanted, newWanteds, cloneWanted, cloneWC,
-  emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
+  emitWanted, emitWantedEq, emitWantedEvVar, emitScaledWantedEvVar, emitWantedEvVars,
   emitDerivedEqs,
   newTcEvBinds, newNoTcEvBinds, addTcEvBind,
   emitNewExprHole,
@@ -265,14 +265,20 @@ emitWantedEq origin t_or_k role ty1 ty2
 -- | Creates a new EvVar and immediately emits it as a Wanted.
 -- No equality predicates here.
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
-emitWantedEvVar origin ty
+emitWantedEvVar origin ty = emitScaledWantedEvVar origin (Scaled Many ty)
+
+-- | Creates a scaled EvVar and emits it as a Wanted.
+-- No equality predicates here.
+emitScaledWantedEvVar :: CtOrigin -> Scaled TcPredType -> TcM EvVar
+emitScaledWantedEvVar origin (Scaled w ty)
   = do { new_cv <- newEvVar ty
        ; loc <- getCtLocM origin Nothing
        ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
                              , ctev_pred = ty
                              , ctev_nosh = WDeriv
                              , ctev_loc  = loc }
-       ; emitSimple $ mkNonCanonical ctev
+       ; let ct = mkNonCanonical ctev
+       ; emitSimple $ ct {cc_mult = w}
        ; return new_cv }
 
 emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]

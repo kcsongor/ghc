@@ -235,7 +235,7 @@ tcExpr e@(HsIPVar _ x) res_ty
          ip_ty <- newOpenFlexiTyVarTy
        ; let ip_name = mkStrLitTy (hsIPNameFS x)
        ; ipClass <- tcLookupClass ipClassName
-       ; ip_var <- emitWantedEvVar origin (mkClassPred ipClass [ip_name, ip_ty])
+       ; ip_var <- emitScaledWantedEvVar origin (Scaled One (mkClassPred ipClass [ip_name, ip_ty]))
        -- TODO(csongor): here, we know that we generated a new usage
        -- of the IP, so emit a constraint accordinly.
        -- What should this constraint look like? Be careful here of shadowing.

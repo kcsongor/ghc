@@ -53,6 +53,7 @@ module GHC.Tc.Types.Constraint (
         With(..), unitWith, mapWith, mapWithM, mapAccumWithL, anyWith, allWith, catWithMaybes,
         mapAndUnzipWithM, isEmptyWith, necatWithMaybes, filterWith, unionWiths,
         concatWith,
+        scaleWanteds,
 
         -- CtEvidence
         CtEvidence(..), TcEvDest(..),
@@ -110,6 +111,7 @@ import GHC.Utils.Panic
 import Control.Monad ( msum )
 import qualified Data.Semigroup ( (<>) )
 import Data.Coerce (coerce)
+import GHC.Core.Multiplicity
 
 {-
 ************************************************************************
@@ -168,15 +170,16 @@ data Ct
       cc_class  :: Class,
       cc_tyargs :: [Xi],   -- cc_tyargs are rewritten w.r.t. inerts, so Xi
 
-      cc_pend_sc :: Bool   -- See Note [The superclass story] in GHC.Tc.Solver.Canonical
+      cc_pend_sc :: Bool,   -- See Note [The superclass story] in GHC.Tc.Solver.Canonical
                            -- True <=> (a) cc_class has superclasses
                            --          (b) we have not (yet) added those
                            --              superclasses as Givens
+     cc_mult :: Mult
     }
 
   | CIrredCan {  -- These stand for yet-unusable predicates
       cc_ev     :: CtEvidence,   -- See Note [Ct/evidence invariant]
-      cc_status :: CtIrredStatus
+      cc_status :: CtIrredStatus,
 
         -- For the might-be-soluble case, the ctev_pred of the evidence is
         -- of form   (tv xi1 xi2 ... xin)   with a tyvar at the head
@@ -186,6 +189,7 @@ data Ct
         -- The definitely-insoluble case is for things like
         --    Int ~ Bool      tycons don't match
         --    a ~ [a]         occurs check
+     cc_mult :: Mult
     }
 
   | CEqCan {  -- CanEqLHS ~ rhs
@@ -211,20 +215,21 @@ data Ct
       cc_lhs    :: CanEqLHS,
       cc_rhs    :: Xi,         -- See invariants above
 
-      cc_eq_rel :: EqRel       -- INVARIANT: cc_eq_rel = ctEvEqRel cc_ev
+      cc_eq_rel :: EqRel,       -- INVARIANT: cc_eq_rel = ctEvEqRel cc_ev
+
+      cc_mult :: Mult
     }
 
   | CNonCanonical {        -- See Note [NonCanonical Semantics] in GHC.Tc.Solver.Monad
-      cc_ev  :: CtEvidence
+      cc_ev  :: CtEvidence,
+
+      cc_mult :: Mult
     }
 
   | CQuantCan QCInst       -- A quantified constraint
       -- NB: I expect to make more of the cases in Ct
       --     look like this, with the payload in an
       --     auxiliary type
-
-  -- TODO(csongor): Add a new type of constraint here that talks about
-  -- unifiability of two evidence formulas
 
 ------------
 -- | A 'CanEqLHS' is a type that can appear on the left of a canonical
@@ -394,13 +399,13 @@ Type-level holes have no evidence at all.
 -}
 
 mkNonCanonical :: CtEvidence -> Ct
-mkNonCanonical ev = CNonCanonical { cc_ev = ev }
+mkNonCanonical ev = CNonCanonical { cc_ev = ev, cc_mult = Many }
 
 mkNonCanonicalCt :: Ct -> Ct
-mkNonCanonicalCt ct = CNonCanonical { cc_ev = cc_ev ct }
+mkNonCanonicalCt ct = CNonCanonical { cc_ev = cc_ev ct, cc_mult = Many }
 
 mkIrredCt :: CtIrredStatus -> CtEvidence -> Ct
-mkIrredCt status ev = CIrredCan { cc_ev = ev, cc_status = status }
+mkIrredCt status ev = CIrredCan { cc_ev = ev, cc_status = status, cc_mult = Many }
 
 mkGivens :: CtLoc -> [EvId] -> [Ct]
 mkGivens loc ev_ids
@@ -450,7 +455,7 @@ ctEqRel :: Ct -> EqRel
 ctEqRel = ctEvEqRel . ctEvidence
 
 instance Outputable Ct where
-  ppr ct = ppr (ctEvidence ct) <+> parens pp_sort
+  ppr ct = ppr (ctEvidence ct) <+> parens pp_sort <+> ppr (cc_mult ct)
     where
       pp_sort = case ct of
          CEqCan {}        -> text "CEqCan"
@@ -978,6 +983,18 @@ mapAndUnzipWithM f (With as)
 
 concatWith :: Bag (With a) -> Bag a
 concatWith withs = concatBag (coerce withs)
+
+
+scaleWanteds :: Mult -> WantedConstraints -> WantedConstraints
+scaleWanteds w WC {wc_simple = s, wc_impl = i, wc_holes = h }
+  = WC {wc_simple = mapBag (scaleCt w) s, wc_impl = mapBag (mapWith (scaleImpl w)) i, wc_holes = h}
+
+scaleImpl :: Mult -> Implication -> Implication
+scaleImpl w i@Implic {ic_wanted = wanted} = i {ic_wanted = scaleWanteds w wanted}
+
+scaleCt :: Mult -> Ct -> Ct
+scaleCt w ct = ct { cc_mult = mkMultMul w (cc_mult ct)}
+
 
 -- /Linear contraints stuff --
 

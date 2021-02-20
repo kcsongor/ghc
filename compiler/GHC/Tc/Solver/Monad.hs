@@ -187,7 +187,6 @@ import GHC.Data.TrieMap
 
 import GHC.Core
 import GHC.Core.UsageEnv
-import GHC.Core.Multiplicity
 
 import Control.Monad
 import GHC.Utils.Monad

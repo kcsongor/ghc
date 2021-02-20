@@ -1287,9 +1287,10 @@ tcCollectingUsage thing_inside
 -- usage information by @mult@.
 tcScalingUsage :: Mult -> TcM a -> TcM a
 tcScalingUsage mult thing_inside
-  = do { (usage, result) <- tcCollectingUsage thing_inside
+  = do { (usage, (result, constraints)) <- tcCollectingUsage (captureConstraints thing_inside)
        ; traceTc "tcScalingUsage" (ppr mult)
        ; tcEmitBindingUsage $ scaleUE mult usage
+       ; emitConstraints (scaleWanteds mult constraints)
        ; return result }
 
 tcEmitBindingUsage :: UsageEnv -> TcM ()
