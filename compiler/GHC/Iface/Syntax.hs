@@ -1589,7 +1589,7 @@ freeNamesIfFamFlav IfaceAbstractClosedSynFamilyTyCon   = emptyNameSet
 freeNamesIfFamFlav IfaceBuiltInSynFamTyCon             = emptyNameSet
 
 freeNamesIfContext :: IfaceContext -> NameSet
-freeNamesIfContext = fnList (freeNamesIfType . fst)
+freeNamesIfContext = fnList (freeNamesIfType . snd)
 
 freeNamesIfAT :: IfaceAT -> NameSet
 freeNamesIfAT (IfaceAT decl mb_def)
