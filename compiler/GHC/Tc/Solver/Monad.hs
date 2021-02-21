@@ -2492,20 +2492,24 @@ lookupInInerts loc (Rep.Scaled w pty)
   | ClassPred cls tys <- classifyPredType pty
   = do { inerts <- getTcSInerts
        ; return (lookupSolvedDict inerts loc cls tys `mplus`
-                 lookupInertDict (inert_cans inerts) w loc cls tys) }
+                 fmap snd (lookupInertDict (inert_cans inerts) w loc cls tys)) }
   | otherwise -- NB: No caching for equalities, IPs, holes, or errors
   = return Nothing
 
 -- | Look up a dictionary inert.
-lookupInertDict :: InertCans -> Mult -> CtLoc -> Class -> [Type] -> Maybe CtEvidence
+lookupInertDict :: InertCans -> Mult -> CtLoc -> Class -> [Type] -> Maybe (Bool, CtEvidence)
 lookupInertDict (IC { inert_dicts = dicts }) w loc cls tys
   = case findDict dicts loc cls tys of
       Just ct
-        | leq w (cc_mult ct) -> Just (ctEvidence ct)
+        | leq w (cc_mult ct) -> Just (should_delete w (cc_mult ct), ctEvidence ct)
       _       -> Nothing
   -- TODO(csongor): this probably fails core lint, a wrapper will be needed somewhere I think
   where leq Many One = False
         leq _ _ = True
+        -- when we solved a linear wanted with a linear given, delete the given
+        -- from the inert
+        should_delete One One = True
+        should_delete _ _ = False
 
 -- | Look up a solved inert.
 lookupSolvedDict :: InertSet -> CtLoc -> Class -> [Type] -> Maybe CtEvidence

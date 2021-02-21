@@ -30,8 +30,8 @@ lin x = x
 nonlin :: a -> a
 nonlin x = x
 
-bad :: (?foo :: Int) =>. Bool -> Int
-bad x = if x then lin ?foo else nonlin ?foo
+-- bad :: (?foo :: Int) =>. Bool -> Int
+-- bad x = if x then lin ?foo else nonlin ?foo
 --     • Could not deduce: ?foo::Int
 --         arising from a use of implicit parameter ‘?foo’
 --       from the context: ?foo::Int
@@ -45,6 +45,22 @@ bad x = if x then lin ?foo else nonlin ?foo
 -- 34 | bar x = if x then lin ?foo else nonlin ?foo
 --    |                                        ^^^^
 
-good :: (?foo :: Int) =>. Bool -> Int
-good x = if x then lin ?foo else lin ?foo
+-- bad' :: (?foo :: Int) =>. Bool -> (Int, Int)
+-- bad' x = if x then (?foo, 0) else (?foo, ?foo)
+-- testsuite/tests/linear/should_compile/CaseConstraints.hs:49:42: error:
+--     • Could not deduce: ?foo::Int
+--         arising from a use of implicit parameter ‘?foo’
+--       from the context: ?foo::Int
+--         bound by the type signature for:
+--                    bad' :: (?foo::Int) => 'One Bool -> (Int, Int)
+--         at testsuite/tests/linear/should_compile/CaseConstraints.hs:48:1-44
+--     • In the expression: ?foo
+--       In the expression: (?foo, ?foo)
+--       In the expression: if x then (?foo, 0) else (?foo, ?foo)
+--    |
+-- 49 | bad' x = if x then (?foo, 0) else (?foo, ?foo)
+--    |                                          ^^^^
+
+-- good :: (?foo :: Int) =>. Bool -> Int
+-- good x = if x then lin ?foo else lin ?foo
 -- typechecks

@@ -970,7 +970,7 @@ Passing along the solved_dicts important for two reasons:
 
 interactDict :: InertCans -> Ct -> TcS (StopOrContinue Ct)
 interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs = tys, cc_mult = w })
-  | Just ev_i <- lookupInertDict inerts w (ctEvLoc ev_w) cls tys
+  | Just (should_delete, ev_i) <- lookupInertDict inerts w (ctEvLoc ev_w) cls tys
   = -- There is a matching dictionary in the inert set
     do { -- First to try to solve it /completely/ from top level instances
          -- See Note [Shortcut solving]
@@ -986,6 +986,8 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
        ; traceTcS "lookupInertDict" (ppr what_next)
        ; case what_next of
            KeepInert -> do { setEvBindIfWanted ev_w (ctEvTerm ev_i)
+                           ; when should_delete $
+                                updInertDicts $ \ds -> delDict ds cls tys
                            ; return $ Stop ev_w (text "Dict equal" <+> parens (ppr what_next)) }
            KeepWork  -> do { setEvBindIfWanted ev_i (ctEvTerm ev_w)
                            ; updInertDicts $ \ ds -> delDict ds cls tys
