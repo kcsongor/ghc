@@ -88,6 +88,7 @@ import Control.Monad
 import Data.Tuple
 import GHC.Data.Maybe
 import Data.List( mapAccumL )
+import GHC.Parser.Annotation
 
 
 {-
@@ -870,7 +871,7 @@ tcDataFamInstHeader mb_clsinfo fam_tc outer_bndrs fixity
        ; (tclvl, wanted, (scoped_tvs, (stupid_theta, lhs_ty, master_res_kind, instance_res_kind)))
             <- pushLevelAndSolveEqualitiesX "tcDataFamInstHeader" $
                bindOuterFamEqnTKBndrs outer_bndrs                 $
-               do { stupid_theta <- tcHsContext hs_ctxt
+               do { stupid_theta <- tcHsContext (HsUnrestrictedArrow NormalSyntax) hs_ctxt
                   ; (lhs_ty, lhs_kind) <- tcFamTyPats fam_tc hs_pats
                   ; (lhs_applied_ty, lhs_applied_kind)
                       <- tcInstInvisibleTyBinders lhs_ty lhs_kind
@@ -915,7 +916,7 @@ tcDataFamInstHeader mb_clsinfo fam_tc outer_bndrs fixity
        ; ze           <- mkEmptyZonkEnv NoFlexi
        ; (ze, qtvs)   <- zonkTyBndrsX           ze qtvs
        ; lhs_ty       <- zonkTcTypeToTypeX      ze lhs_ty
-       ; stupid_theta <- zonkTcTypesToTypesX    ze stupid_theta
+       ; stupid_theta <- zonkScaledTcTypesToTypesX ze stupid_theta
        ; master_res_kind   <- zonkTcTypeToTypeX ze master_res_kind
        ; instance_res_kind <- zonkTcTypeToTypeX ze instance_res_kind
 
@@ -934,7 +935,7 @@ tcDataFamInstHeader mb_clsinfo fam_tc outer_bndrs fixity
            Just (_, pats) -> pure pats
            Nothing -> pprPanic "tcDataFamInstHeader" (ppr lhs_ty)
 
-       ; return (qtvs, pats, master_res_kind, map unrestricted stupid_theta) }
+       ; return (qtvs, pats, master_res_kind, stupid_theta) }
   where
     fam_name  = tyConName fam_tc
     data_ctxt = DataKindCtxt fam_name

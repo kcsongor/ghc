@@ -1676,8 +1676,9 @@ instance ToHie (Located (HsType GhcRn)) where
               toHie $ tvScopes (ResolvedScopes []) scope bndrs
         , toHie body
         ]
-      HsQualTy _ ctx body ->
-        [ toHie ctx
+      HsQualTy _ arr ctx body ->
+        [ toHie (arrowToHsType arr)
+        , toHie ctx
         , toHie body
         ]
       HsTyVar _ _ var ->

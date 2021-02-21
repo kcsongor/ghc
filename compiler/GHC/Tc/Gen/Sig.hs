@@ -61,6 +61,7 @@ import GHC.Utils.Misc as Utils ( singleton )
 import GHC.Data.Maybe( orElse )
 import Data.Maybe( mapMaybe )
 import Control.Monad( unless )
+import GHC.Parser.Annotation
 
 
 {- -------------------------------------------------------------
@@ -383,8 +384,8 @@ tcPatSynSig name sig_ty@(L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = hs_ty
                      -- See Note [solveEqualities in tcPatSynSig]
               tcOuterTKBndrs skol_info hs_outer_bndrs $
               tcExplicitTKBndrs ex_hs_tvbndrs         $
-              do { req     <- tcHsContext hs_req
-                 ; prov    <- tcHsContext hs_prov
+              do { req     <- tcHsContext (HsUnrestrictedArrow NormalSyntax) hs_req
+                 ; prov    <- tcHsContext (HsUnrestrictedArrow NormalSyntax) hs_prov
                  ; body_ty <- tcHsOpenType hs_body_ty
                      -- A (literal) pattern can be unlifted;
                      -- e.g. pattern Zero <- 0#   (#12094)
@@ -401,7 +402,7 @@ tcPatSynSig name sig_ty@(L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = hs_ty
 
        -- Kind generalisation
        ; let ungen_patsyn_ty = build_patsyn_type implicit_bndrs univ_bndrs
-                                                 (map unrestricted req) ex_bndrs (map unrestricted prov) body_ty
+                                                 req ex_bndrs prov body_ty
        ; traceTc "tcPatSynSig" (ppr ungen_patsyn_ty)
        ; kvs <- kindGeneralizeAll ungen_patsyn_ty
        ; reportUnsolvedEqualities skol_info kvs tclvl wanted
@@ -415,13 +416,13 @@ tcPatSynSig name sig_ty@(L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = hs_ty
        ; (ze, implicit_bndrs) <- zonkTyVarBindersX   ze implicit_bndrs
        ; (ze, univ_bndrs)     <- zonkTyVarBindersX   ze univ_bndrs
        ; (ze, ex_bndrs)       <- zonkTyVarBindersX   ze ex_bndrs
-       ; req                  <- zonkTcTypesToTypesX ze req
-       ; prov                 <- zonkTcTypesToTypesX ze prov
+       ; req                  <- zonkScaledTcTypesToTypesX ze req
+       ; prov                 <- zonkScaledTcTypesToTypesX ze prov
        ; body_ty              <- zonkTcTypeToTypeX   ze body_ty
 
        -- Now do validity checking
        ; checkValidType ctxt $
-         build_patsyn_type implicit_bndrs univ_bndrs (map unrestricted req) ex_bndrs (map unrestricted prov) body_ty
+         build_patsyn_type implicit_bndrs univ_bndrs req ex_bndrs prov body_ty
 
        -- arguments become the types of binders. We thus cannot allow
        -- levity polymorphism here
@@ -439,9 +440,9 @@ tcPatSynSig name sig_ty@(L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = hs_ty
        ; return (TPSI { patsig_name = name
                       , patsig_implicit_bndrs = kv_bndrs ++ implicit_bndrs
                       , patsig_univ_bndrs     = univ_bndrs
-                      , patsig_req            = map unrestricted req
+                      , patsig_req            = req
                       , patsig_ex_bndrs       = ex_bndrs
-                      , patsig_prov           = map unrestricted prov
+                      , patsig_prov           = prov
                       , patsig_body_ty        = body_ty }) }
   where
     ctxt = PatSynCtxt name

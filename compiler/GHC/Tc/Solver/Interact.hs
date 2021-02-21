@@ -969,8 +969,8 @@ Passing along the solved_dicts important for two reasons:
 -}
 
 interactDict :: InertCans -> Ct -> TcS (StopOrContinue Ct)
-interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs = tys })
-  | Just ev_i <- lookupInertDict inerts (ctEvLoc ev_w) cls tys
+interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs = tys, cc_mult = w })
+  | Just ev_i <- lookupInertDict inerts w (ctEvLoc ev_w) cls tys
   = -- There is a matching dictionary in the inert set
     do { -- First to try to solve it /completely/ from top level instances
          -- See Note [Shortcut solving]
@@ -1001,6 +1001,7 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
 
 interactDict _ wi = pprPanic "interactDict" (ppr wi)
 
+-- TODO(csongor): don't use shortcut solver when the wanted is linear.
 -- See Note [Shortcut solving]
 shortCutSolver :: DynFlags
                -> CtEvidence -- Work item

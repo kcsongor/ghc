@@ -107,7 +107,7 @@ tcMatchesFun fn@(L _ fun_name) matches exp_ty
         ; matchExpectedFunTys herald ctxt arity exp_ty $ \ pat_tys rhs_ty ->
              -- NB: exp_type may be polymorphic, but
              --     matchExpectedFunTys can cope with that
-          tcScalingUsage Many $
+          tcScalingUsageNoConstraints Many $
           -- toplevel bindings and let bindings are, at the
           -- moment, always unrestricted. The value being bound
           -- must, accordingly, be unrestricted. Hence them

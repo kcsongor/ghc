@@ -660,7 +660,7 @@ tcCheckUsage name id_mult thing_inside
     -- its multiplicity, and combines the usage of non-new binders to |uenv|
     check_then_add_usage uenv
       = do { let actual_u = lookupUE uenv name
-           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_u)
+           ; traceTc "check_then_add_usage" (ppr name $$ ppr id_mult $$ ppr actual_u)
            ; wrapper <- case actual_u of
                Bottom -> return idHsWrapper
                Zero     -> tcSubMult (UsageEnvironmentOf name) Many id_mult

@@ -1788,14 +1788,16 @@ cvtPatSynSigTy (ForallT univs reqs (ForallT exis provs ty))
                                ; return $ L l $ mkHsImplicitSigType
                                         $ L l (HsQualTy { hst_ctxt = L l []
                                                         , hst_xqual = noExtField
-                                                        , hst_body = ty' }) }
+                                                        , hst_body = ty'
+                                                        , hst_mult = HsUnrestrictedArrow NormalSyntax }) }
   | null reqs             = do { l      <- getL
                                ; univs' <- cvtTvs univs
                                ; ty'    <- cvtType (ForallT exis provs ty)
                                ; let forTy = mkHsExplicitSigType univs' $ L l cxtTy
                                      cxtTy = HsQualTy { hst_ctxt = L l []
                                                       , hst_xqual = noExtField
-                                                      , hst_body = ty' }
+                                                      , hst_body = ty'
+                                                      , hst_mult = HsUnrestrictedArrow NormalSyntax }
                                ; return $ L l forTy }
   | otherwise             = cvtSigType (ForallT univs reqs (ForallT exis provs ty))
 cvtPatSynSigTy ty         = cvtSigType ty
@@ -1880,7 +1882,8 @@ mkHsQualTy ctxt loc ctxt' ty
   | null ctxt = ty
   | otherwise = L loc $ HsQualTy { hst_xqual = noExtField
                                  , hst_ctxt  = ctxt'
-                                 , hst_body  = ty }
+                                 , hst_body  = ty
+                                 , hst_mult = HsUnrestrictedArrow NormalSyntax }
 
 mkHsOuterFamEqnTyVarBndrs :: Maybe [LHsTyVarBndr () GhcPs] -> HsOuterFamEqnTyVarBndrs GhcPs
 mkHsOuterFamEqnTyVarBndrs = maybe mkHsOuterImplicit mkHsOuterExplicit

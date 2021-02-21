@@ -648,6 +648,7 @@ are the most common patterns, rewritten as regular expressions for clarity:
  '->.'          { L _ ITlolly }
  TIGHT_INFIX_AT { L _ ITat }
  '=>'           { L _ (ITdarrow _) }
+ '=>.'          { L _ (ITdlolly _) }
  '-'            { L _ ITminus }
  PREFIX_TILDE   { L _ ITtilde }
  PREFIX_BANG    { L _ ITbang }
@@ -2043,7 +2044,14 @@ ctype   :: { LHsType GhcPs }
                                          >> return (sLL $1 $> $
                                             HsQualTy { hst_ctxt = $1
                                                      , hst_xqual = noExtField
-                                                     , hst_body = $3 }) }
+                                                     , hst_body = $3
+                                                     , hst_mult = HsUnrestrictedArrow (toUnicode $2)}) }
+        | context '=>.' ctype         {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
+                                         >> return (sLL $1 $> $
+                                            HsQualTy { hst_ctxt = $1
+                                                     , hst_xqual = noExtField
+                                                     , hst_body = $3
+                                                     , hst_mult = HsLinearArrow (toUnicode $2) }) }
         | ipvar '::' type             {% ams (sLL $1 $> (HsIParamTy noExtField $1 $3))
                                              [mu AnnDcolon $2] }
         | type                        { $1 }

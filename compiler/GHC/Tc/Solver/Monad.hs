@@ -2486,23 +2486,26 @@ lookupFamAppInert fam_tc tys
       = Just (ctEvCoercion ctev, rhs, ctEvFlavourRole ctev)
       | otherwise = Nothing
 
--- TODO(csongor): to handle ambiguity, we will have to look up a scaled thing potentially
-lookupInInerts :: CtLoc -> TcPredType -> TcS (Maybe CtEvidence)
+lookupInInerts :: CtLoc -> Scaled TcPredType -> TcS (Maybe CtEvidence)
 -- Is this exact predicate type cached in the solved or canonicals of the InertSet?
-lookupInInerts loc pty
+lookupInInerts loc (Rep.Scaled w pty)
   | ClassPred cls tys <- classifyPredType pty
   = do { inerts <- getTcSInerts
        ; return (lookupSolvedDict inerts loc cls tys `mplus`
-                 lookupInertDict (inert_cans inerts) loc cls tys) }
+                 lookupInertDict (inert_cans inerts) w loc cls tys) }
   | otherwise -- NB: No caching for equalities, IPs, holes, or errors
   = return Nothing
 
 -- | Look up a dictionary inert.
-lookupInertDict :: InertCans -> CtLoc -> Class -> [Type] -> Maybe CtEvidence
-lookupInertDict (IC { inert_dicts = dicts }) loc cls tys
+lookupInertDict :: InertCans -> Mult -> CtLoc -> Class -> [Type] -> Maybe CtEvidence
+lookupInertDict (IC { inert_dicts = dicts }) w loc cls tys
   = case findDict dicts loc cls tys of
-      Just ct -> Just (ctEvidence ct)
+      Just ct
+        | leq w (cc_mult ct) -> Just (ctEvidence ct)
       _       -> Nothing
+  -- TODO(csongor): this probably fails core lint, a wrapper will be needed somewhere I think
+  where leq Many One = False
+        leq _ _ = True
 
 -- | Look up a solved inert.
 lookupSolvedDict :: InertSet -> CtLoc -> Class -> [Type] -> Maybe CtEvidence
@@ -3685,7 +3688,7 @@ newWantedEvVar = newWantedEvVar_SI WDeriv
 newWantedEvVar_SI :: ShadowInfo -> CtLoc -> Scaled TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
 newWantedEvVar_SI si loc pty
-  = do { mb_ct <- lookupInInerts loc (Rep.scaledThing pty)
+  = do { mb_ct <- lookupInInerts loc pty
        ; case mb_ct of
             Just ctev
               | not (isDerived ctev)

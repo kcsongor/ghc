@@ -100,6 +100,7 @@ import Data.List
 import Data.List.NonEmpty ( NonEmpty(..) )
 import qualified Data.Set as Set
 import Data.Tuple( swap )
+import GHC.Parser.Annotation
 
 {-
 ************************************************************************
@@ -1538,7 +1539,7 @@ kcTyClDecl (DataDecl { tcdLName    = (L _ name), tcdDataDefn = defn }) tycon
        -- and the ones from this bindTyClTyVars are either not mentioned or
        -- (conceivably) shadowed.
     do { traceTc "kcTyClDecl" (ppr tycon $$ ppr (tyConTyVars tycon) $$ ppr (tyConResKind tycon))
-       ; _ <- tcHsContext ctxt
+       ; _ <- tcHsContext (HsUnrestrictedArrow NormalSyntax) ctxt
        ; kcConDecls new_or_data (tyConResKind tycon) cons
        }
 
@@ -1551,7 +1552,7 @@ kcTyClDecl (SynDecl { tcdLName = L _ name, tcdRhs = rhs }) _tycon
 kcTyClDecl (ClassDecl { tcdLName = L _ name
                       , tcdCtxt = ctxt, tcdSigs = sigs }) _tycon
   = bindTyClTyVars name $ \ _ _ _ ->
-    do  { _ <- tcHsContext ctxt
+    do  { _ <- tcHsContext (HsUnrestrictedArrow NormalSyntax) ctxt
         ; mapM_ (wrapLocM_ kc_sig) sigs }
   where
     kc_sig (ClassOpSig _ _ nms op_ty) = kcClassSigType nms op_ty
@@ -1620,7 +1621,7 @@ kcConDecl new_or_data tc_res_kind (ConDeclH98
   = addErrCtxt (dataConCtxt [name]) $
     discardResult                   $
     bindExplicitTKBndrs_Tv ex_tvs $
-    do { _ <- tcHsMbContext ex_ctxt
+    do { _ <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) ex_ctxt
        ; kcConH98Args new_or_data tc_res_kind args
          -- We don't need to check the telescope here,
          -- because that's done in tcConDecl
@@ -1636,7 +1637,7 @@ kcConDecl new_or_data
     discardResult                      $
     bindOuterSigTKBndrs_Tv outer_bndrs $
         -- Why "_Tv"?  See Note [Using TyVarTvs for kind-checking GADTs]
-    do { _ <- tcHsMbContext cxt
+    do { _ <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) cxt
        ; traceTc "kcConDecl:GADT {" (ppr names $$ ppr res_ty)
        ; con_res_kind <- newOpenTypeKind
        ; _ <- tcCheckLHsType res_ty (TheKind con_res_kind)
@@ -2340,7 +2341,7 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
             <- pushLevelAndSolveEqualities skol_info (binderVars binders) $
                -- The (binderVars binders) is needed bring into scope the
                -- skolems bound by the class decl header (#17841)
-               do { ctxt <- tcHsContext hs_ctxt
+               do { ctxt <- tcHsContext (HsUnrestrictedArrow NormalSyntax) hs_ctxt
                   ; fds  <- mapM (addLocM tc_fundep) fundeps
                   ; sig_stuff <- tcClassSigs class_name sigs meths
                   ; at_stuff  <- tcClassATs class_name clas ats at_defs
@@ -2351,8 +2352,8 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
        --   type C :: Type -> Type -> Constraint
        --   class (forall a. a b ~ a c) => C b c
        -- The kind of `a` is unconstrained.
-       ; dvs <- candidateQTyVarsOfTypes ctxt
-       ; let mk_doc tidy_env = do { (tidy_env2, ctxt) <- zonkTidyTcTypes tidy_env ctxt
+       ; dvs <- candidateQTyVarsOfTypes (map scaledThing ctxt)
+       ; let mk_doc tidy_env = do { (tidy_env2, ctxt) <- zonkTidyTcTypes tidy_env (map scaledThing ctxt)
                                   ; return ( tidy_env2
                                            , sep [ text "the class context:"
                                                  , pprTheta (map unrestricted ctxt) ] ) }
@@ -2364,7 +2365,7 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
        -- The zonk also squeeze out the TcTyCons, and converts
        -- Skolems to tyvars.
        ; ze        <- mkEmptyZonkEnv NoFlexi
-       ; ctxt      <- zonkTcTypesToTypesX ze ctxt
+       ; ctxt      <- zonkScaledTcTypesToTypesX ze ctxt
        ; sig_stuff <- mapM (zonkTcMethInfoToMethInfoX ze) sig_stuff
          -- ToDo: do we need to zonk at_stuff?
 
@@ -2377,7 +2378,7 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
        ; let body | is_boot, null ctxt, null at_stuff, null sig_stuff
                   = Nothing
                   | otherwise
-                  = Just (map unrestricted ctxt, at_stuff, sig_stuff, mindef)
+                  = Just (ctxt, at_stuff, sig_stuff, mindef)
 
        ; clas <- buildClass class_name binders roles fds body
        ; traceTc "tcClassDecl" (ppr fundeps $$ ppr binders $$
@@ -2799,22 +2800,22 @@ tcDataDefn err_ctxt roles_info tc_name
 
        ; let skol_tvs = binderVars tycon_binders
        ; stupid_tc_theta <- pushLevelAndSolveEqualities skol_info skol_tvs $
-                            tcHsContext ctxt
+                            tcHsContext (HsUnrestrictedArrow NormalSyntax) ctxt
 
        -- See Note [Error on unconstrained meta-variables] in GHC.Tc.Utils.TcMType
        -- Example: (typecheck/should_fail/T17567StupidTheta)
        --   data (forall a. a b ~ a c) => T b c
        -- The kind of 'a' is unconstrained.
-       ; dvs <- candidateQTyVarsOfTypes stupid_tc_theta
+       ; dvs <- candidateQTyVarsOfTypes (map scaledThing stupid_tc_theta)
        ; let mk_doc tidy_env
-               = do { (tidy_env2, theta) <- zonkTidyTcTypes tidy_env stupid_tc_theta
+               = do { (tidy_env2, theta) <- zonkTidyTcTypes tidy_env (map scaledThing stupid_tc_theta)
                     ; return ( tidy_env2
                              , sep [ text "the datatype context:"
                                    , pprTheta (map unrestricted theta) ] ) }
        ; doNotQuantifyTyVars dvs mk_doc
 
        ; ze              <- mkEmptyZonkEnv NoFlexi
-       ; stupid_theta    <- zonkTcTypesToTypesX ze stupid_tc_theta
+       ; stupid_theta    <- zonkTcTypesToTypesX ze (map scaledThing stupid_tc_theta)
 
              -- Check that we don't use kind signatures without the extension
        ; kind_signatures <- xoptM LangExt.KindSignatures
@@ -3294,7 +3295,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; (tclvl, wanted, (exp_tvbndrs, (ctxt, arg_tys, field_lbls, stricts)))
            <- pushLevelAndSolveEqualitiesX "tcConDecl:H98"  $
               tcExplicitTKBndrs explicit_tkv_nms            $
-              do { ctxt <- tcHsMbContext hs_ctxt
+              do { ctxt <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) hs_ctxt
                  ; let exp_kind = getArgExpKind new_or_data res_kind
                  ; btys <- tcConH98Args exp_kind hs_args
                  ; field_lbls <- lookupConstructorFields name
@@ -3306,7 +3307,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; let tc_tvs   = binderVars tc_bndrs
              fake_ty  = mkSpecForAllTys  tc_tvs      $
                         mkInvisForAllTys exp_tvbndrs $
-                        mkPhiTy (map unrestricted ctxt) $
+                        mkPhiTy ctxt $
                         mkVisFunTys arg_tys $
                         unitTy
              -- That type is a lie, of course. (It shouldn't end in ()!)
@@ -3336,7 +3337,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; (ze, qkvs)          <- zonkTyBndrsX              ze kvs
        ; (ze, user_qtvbndrs) <- zonkTyVarBindersX         ze exp_tvbndrs
        ; arg_tys             <- zonkScaledTcTypesToTypesX ze arg_tys
-       ; ctxt                <- zonkTcTypesToTypesX       ze ctxt
+       ; ctxt                <- zonkScaledTcTypesToTypesX ze ctxt
 
        -- Can't print univ_tvs, arg_tys etc, because we are inside the knot here
        ; traceTc "tcConDecl 2" (ppr name $$ ppr field_lbls)
@@ -3356,7 +3357,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; dc <- buildDataCon fam_envs name is_infix rep_nm
                             stricts Nothing field_lbls
                             tc_tvs ex_tvs user_tvbs
-                            [{- no eq_preds -}] (map unrestricted ctxt) arg_tys
+                            [{- no eq_preds -}] ctxt arg_tys
                             user_res_ty rep_tycon tag_map
                   -- NB:  we put data_tc, the type constructor gotten from the
                   --      constructor type signature into the data constructor;
@@ -3380,7 +3381,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
        ; (tclvl, wanted, (outer_bndrs, (ctxt, arg_tys, res_ty, field_lbls, stricts)))
            <- pushLevelAndSolveEqualitiesX "tcConDecl:GADT" $
               tcOuterTKBndrs skol_info outer_hs_bndrs       $
-              do { ctxt <- tcHsMbContext cxt
+              do { ctxt <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) cxt
                  ; (res_ty, res_kind) <- tcInferLHsTypeKind hs_res_ty
                          -- See Note [GADT return kinds]
 
@@ -3409,7 +3410,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
        ; outer_tv_bndrs <- scopedSortOuter outer_bndrs
 
        ; tkvs <- kindGeneralizeAll (mkInvisForAllTys outer_tv_bndrs $
-                                    mkPhiTy (map unrestricted ctxt) $
+                                    mkPhiTy ctxt $
                                     mkVisFunTys arg_tys $
                                     res_ty)
        ; traceTc "tcConDecl:GADT" (ppr names $$ ppr res_ty $$ ppr tkvs)
@@ -3421,7 +3422,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
        ; ze            <- mkEmptyZonkEnv NoFlexi
        ; (ze, tvbndrs) <- zonkTyVarBindersX         ze tvbndrs
        ; arg_tys       <- zonkScaledTcTypesToTypesX ze arg_tys
-       ; ctxt          <- zonkTcTypesToTypesX       ze ctxt
+       ; ctxt          <- zonkScaledTcTypesToTypesX ze ctxt
        ; res_ty        <- zonkTcTypeToTypeX         ze res_ty
 
        ; let res_tmpl = mkDDHeaderTy dd_info rep_tycon tc_bndrs
@@ -3429,7 +3430,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
                = rejigConRes tc_bndrs res_tmpl tvbndrs res_ty
              -- See Note [rejigConRes]
 
-             ctxt'      = substTys arg_subst ctxt
+             ctxt'      = substScaledTys arg_subst ctxt
              arg_tys'   = substScaledTys arg_subst arg_tys
              res_ty'    = substTy  arg_subst res_ty
 
@@ -3445,7 +3446,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
                             rep_nm
                             stricts Nothing field_lbls
                             univ_tvs ex_tvs tvbndrs' eq_preds
-                            (map unrestricted ctxt') arg_tys' res_ty' rep_tycon tag_map
+                            ctxt' arg_tys' res_ty' rep_tycon tag_map
                   -- NB:  we put data_tc, the type constructor gotten from the
                   --      constructor type signature into the data constructor;
                   --      that way checkValidDataCon can complain if it's wrong.

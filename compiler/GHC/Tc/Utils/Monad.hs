@@ -72,7 +72,7 @@ module GHC.Tc.Utils.Monad(
   discardWarnings,
 
   -- * Usage environment
-  tcCollectingUsage, tcScalingUsage, tcEmitBindingUsage,
+  tcCollectingUsage, tcScalingUsage, tcScalingUsageNoConstraints, tcEmitBindingUsage,
 
   -- * Shared error message stuff: renamer and typechecker
   mkLongErrAt, mkErrDocAt, addLongErrAt, reportErrors, reportError,
@@ -1289,9 +1289,18 @@ tcCollectingUsage thing_inside
 tcScalingUsage :: HasCallStack => Mult -> TcM a -> TcM a
 tcScalingUsage mult thing_inside
   = do { (usage, (result, constraints)) <- tcCollectingUsage (captureConstraints thing_inside)
-       ; traceTc "tcScalingUsage" (ppr mult <+> ppr (prettyCallStack callStack))
+       ; traceTc "tcScalingUsage" (ppr mult <+> text (prettyCallStack callStack))
        ; tcEmitBindingUsage $ scaleUE mult usage
        ; emitConstraints (scaleWanteds mult constraints)
+       ; return result }
+
+-- | in Tc.Gen.Match, scaling the usage environment also scaled the constraints
+-- in a way I couldn't really make sense of. Until I understand the role of that
+-- scaling, we use this, which seems to result in the right multiplicities.
+tcScalingUsageNoConstraints :: HasCallStack => Mult -> TcM a -> TcM a
+tcScalingUsageNoConstraints mult thing_inside
+  = do { (usage, result) <- tcCollectingUsage thing_inside
+       ; tcEmitBindingUsage $ scaleUE mult usage
        ; return result }
 
 tcEmitBindingUsage :: UsageEnv -> TcM ()

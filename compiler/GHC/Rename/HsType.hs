@@ -255,24 +255,27 @@ rnWcBody ctxt nwc_rdrs hs_ty
                     , fvs) }
 
     rn_ty env (HsQualTy { hst_ctxt = L cx hs_ctxt
-                        , hst_body = hs_ty })
+                        , hst_body = hs_ty, hst_mult = w })
       | Just (hs_ctxt1, hs_ctxt_last) <- snocView hs_ctxt
       , L lx (HsWildCardTy _)  <- ignoreParens hs_ctxt_last
       = do { (hs_ctxt1', fvs1) <- mapFvRn (rn_top_constraint env) hs_ctxt1
            ; setSrcSpan lx $ checkExtraConstraintWildCard env hs_ctxt1
            ; let hs_ctxt' = hs_ctxt1' ++ [L lx (HsWildCardTy noExtField)]
            ; (hs_ty', fvs2) <- rnLHsTyKi env hs_ty
+           ; (w', fvs3) <- rnHsArrow env w
            ; return (HsQualTy { hst_xqual = noExtField
-                              , hst_ctxt = L cx hs_ctxt', hst_body = hs_ty' }
-                    , fvs1 `plusFV` fvs2) }
+                              , hst_ctxt = L cx hs_ctxt', hst_body = hs_ty', hst_mult = w' }
+                    , fvs1 `plusFV` fvs2 `plusFV` fvs3) }
 
       | otherwise
       = do { (hs_ctxt', fvs1) <- mapFvRn (rn_top_constraint env) hs_ctxt
            ; (hs_ty', fvs2)   <- rnLHsTyKi env hs_ty
+           ; (w', fvs3) <- rnHsArrow env w
            ; return (HsQualTy { hst_xqual = noExtField
                               , hst_ctxt = L cx hs_ctxt'
-                              , hst_body = hs_ty' }
-                    , fvs1 `plusFV` fvs2) }
+                              , hst_body = hs_ty'
+                              , hst_mult = w' }
+                    , fvs1 `plusFV` fvs2 `plusFV` fvs3) }
 
     rn_ty env hs_ty = rnHsTyKi env hs_ty
 
@@ -593,15 +596,16 @@ rnHsTyKi env ty@(HsForAllTy { hst_tele = tele, hst_body = tau })
                              , hst_tele = tele' , hst_body =  tau' }
                 , fvs) } }
 
-rnHsTyKi env ty@(HsQualTy { hst_ctxt = lctxt, hst_body = tau })
+rnHsTyKi env ty@(HsQualTy { hst_ctxt = lctxt, hst_body = tau, hst_mult = w })
   = do { data_kinds <- xoptM LangExt.DataKinds -- See Note [HsQualTy in kinds]
        ; when (not data_kinds && isRnKindLevel env)
               (addErr (dataKindsErr env ty))
        ; (ctxt', fvs1) <- rnTyKiContext env lctxt
        ; (tau',  fvs2) <- rnLHsTyKi env tau
+       ; (w',    fvs3) <- rnHsArrow env w
        ; return (HsQualTy { hst_xqual = noExtField, hst_ctxt = ctxt'
-                          , hst_body =  tau' }
-                , fvs1 `plusFV` fvs2) }
+                          , hst_body =  tau', hst_mult = w' }
+                , fvs1 `plusFV` fvs2 `plusFV` fvs3) }
 
 rnHsTyKi env (HsTyVar _ ip (L loc rdr_name))
   = do { when (isRnKindLevel env && isRdrTyVar rdr_name) $

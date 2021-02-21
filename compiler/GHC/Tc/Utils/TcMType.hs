@@ -277,7 +277,9 @@ emitScaledWantedEvVar w origin ty
                              , ctev_pred = ty
                              , ctev_nosh = WDeriv
                              , ctev_loc  = loc }
-       ; emitSimple $ mkScaledNonCanonical w ctev
+       ; let ct = mkScaledNonCanonical w ctev
+       ; traceTc "Emitting scaled wanted evvar" (ppr ct <+> ppr w)
+       ; emitSimple ct
        ; return (scaledThing new_cv) }
 
 emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]

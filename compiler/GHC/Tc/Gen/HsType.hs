@@ -1080,23 +1080,23 @@ tc_hs_type mode (HsForAllTy { hst_tele = tele, hst_body = ty }) exp_kind
 
        ; return (mkForAllTys tv_bndrs ty') }
 
-tc_hs_type mode (HsQualTy { hst_ctxt = ctxt, hst_body = rn_ty }) exp_kind
+tc_hs_type mode (HsQualTy { hst_ctxt = ctxt, hst_body = rn_ty, hst_mult = w }) exp_kind
   | null (unLoc ctxt)
   = tc_lhs_type mode rn_ty exp_kind
 
   -- See Note [Body kind of a HsQualTy]
   | tcIsConstraintKind exp_kind
-  = do { ctxt' <- tc_hs_context mode ctxt
+  = do { ctxt' <- tc_hs_context mode w ctxt
        ; ty'   <- tc_lhs_type mode rn_ty constraintKind
-       ; return (mkPhiTy (map unrestricted ctxt') ty') }
+       ; return (mkPhiTy ctxt' ty') }
 
   | otherwise
-  = do { ctxt' <- tc_hs_context mode ctxt
+  = do { ctxt' <- tc_hs_context mode w ctxt
 
        ; ek <- newOpenTypeKind  -- The body kind (result of the function) can
                                 -- be TYPE r, for any r, hence newOpenTypeKind
        ; ty' <- tc_lhs_type mode rn_ty ek
-       ; checkExpectedKind (unLoc rn_ty) (mkPhiTy (map unrestricted ctxt') ty')
+       ; checkExpectedKind (unLoc rn_ty) (mkPhiTy ctxt' ty')
                            liftedTypeKind exp_kind }
 
 --------- Lists, arrays, and tuples
@@ -1826,18 +1826,20 @@ checkExpectedKind hs_ty ty act_kind exp_kind
       n_to_inst         = n_act_invis_bndrs - n_exp_invis_bndrs
 
 ---------------------------
-tcHsMbContext :: Maybe (LHsContext GhcRn) -> TcM [PredType]
-tcHsMbContext Nothing    = return []
-tcHsMbContext (Just cxt) = tcHsContext cxt
+tcHsMbContext :: HsArrow GhcRn -> Maybe (LHsContext GhcRn) -> TcM [Scaled PredType]
+tcHsMbContext _ Nothing    = return []
+tcHsMbContext w (Just cxt) = tcHsContext w cxt
 
-tcHsContext :: LHsContext GhcRn -> TcM [PredType]
-tcHsContext cxt = tc_hs_context typeLevelMode cxt
+tcHsContext :: HsArrow GhcRn -> LHsContext GhcRn -> TcM [Scaled PredType]
+tcHsContext w cxt = tc_hs_context typeLevelMode w cxt
 
 tcLHsPredType :: LHsType GhcRn -> TcM PredType
 tcLHsPredType pred = tc_lhs_pred typeLevelMode pred
 
-tc_hs_context :: TcTyMode -> LHsContext GhcRn -> TcM [PredType]
-tc_hs_context mode ctxt = mapM (tc_lhs_pred mode) (unLoc ctxt)
+tc_hs_context :: TcTyMode -> HsArrow GhcRn -> LHsContext GhcRn -> TcM [Scaled PredType]
+tc_hs_context mode w ctxt = do
+  w' <- tcMult w
+  mapM (\c -> Scaled w' <$> tc_lhs_pred mode c) (unLoc ctxt)
 
 tc_lhs_pred :: TcTyMode -> LHsType GhcRn -> TcM PredType
 tc_lhs_pred mode pred = tc_lhs_type mode pred constraintKind
