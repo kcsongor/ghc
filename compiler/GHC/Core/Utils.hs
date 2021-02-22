@@ -178,8 +178,7 @@ mkFunctionType :: Mult -> Type -> Type -> Type
 -- See GHC.Types.Var Note [AnonArgFlag]
 mkFunctionType mult arg_ty res_ty
    | isPredTy arg_ty -- See GHC.Types.Var Note [AnonArgFlag]
-   = ASSERT(eqType mult Many)
-     mkInvisFunTy mult arg_ty res_ty
+   = mkInvisFunTy mult arg_ty res_ty
 
    | otherwise
    = mkVisFunTy mult arg_ty res_ty

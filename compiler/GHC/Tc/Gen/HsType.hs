@@ -3743,7 +3743,7 @@ tcHsPartialSigType
 tcHsPartialSigType ctxt sig_ty
   | HsWC { hswc_ext  = sig_wcs, hswc_body = sig_ty } <- sig_ty
   , L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = body_ty}) <- sig_ty
-  , (L _ hs_ctxt, hs_tau) <- splitLHsQualTy body_ty
+  , ((_, L _ hs_ctxt), hs_tau) <- splitLHsQualTy body_ty
   = addSigCtxt ctxt sig_ty $
     do { mode <- mkHoleMode TypeLevel HM_Sig
        ; (outer_bndrs, (wcs, wcx, theta, tau))

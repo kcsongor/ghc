@@ -14,6 +14,7 @@ module GHC.Rename.HsType (
         rnHsKind, rnLHsKind, rnLHsTypeArgs,
         rnHsSigType, rnHsWcType, rnHsPatSigTypeBindingVars,
         HsPatSigTypeScoping(..), rnHsSigWcType, rnHsPatSigType,
+        rnHsArrow',
         newTyVarNameRn,
         rnConDeclFields,
         lookupField,
@@ -759,6 +760,9 @@ rnHsArrow _env (HsUnrestrictedArrow u) = return (HsUnrestrictedArrow u, emptyFVs
 rnHsArrow _env (HsLinearArrow u) = return (HsLinearArrow u, emptyFVs)
 rnHsArrow env (HsExplicitMult u p)
   = (\(mult, fvs) -> (HsExplicitMult u mult, fvs)) <$> rnLHsTyKi env p
+  
+rnHsArrow' :: HsDocContext -> HsArrow GhcPs -> RnM (HsArrow GhcRn, FreeVars)
+rnHsArrow' ctxt arr = rnHsArrow (mkTyKiEnv ctxt TypeLevel RnTypeBody) arr
 
 {-
 Note [Renaming HsCoreTys]

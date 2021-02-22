@@ -620,6 +620,7 @@ mkConDeclH98 name mb_forall mb_cxt args
                , con_ex_tvs = mb_forall `orElse` []
                , con_mb_cxt = mb_cxt
                , con_args   = args
+               , con_mult   = HsUnrestrictedArrow NormalSyntax
                , con_doc    = Nothing }
 
 -- | Construct a GADT-style data constructor from the constructor names and
@@ -646,10 +647,14 @@ mkGadtDecl names ty = do
                      , con_mb_cxt = mcxt
                      , con_g_args = args
                      , con_res_ty = res_ty
+                     , con_mult   = mult
                      , con_doc    = Nothing }
        , anns )
   where
-    (outer_bndrs, mcxt, body_ty) = splitLHsGadtTy ty
+    (outer_bndrs, mcxt', body_ty) = splitLHsGadtTy ty
+    (mult, mcxt) = case mcxt' of
+      Just (mult, ctxt) -> (mult, Just ctxt)
+      Nothing -> (HsUnrestrictedArrow NormalSyntax, Nothing)
 
 setRdrNameSpace :: RdrName -> NameSpace -> RdrName
 -- ^ This rather gruesome function is used mainly by the parser.

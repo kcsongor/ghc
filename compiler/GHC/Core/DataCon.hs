@@ -400,7 +400,7 @@ data DataCon
 
                 -- The next two fields give the type context of the data constructor
                 --      (aside from the GADT constraints,
-                --       which are given by the dcExpSpec)
+                --       which are given by the dcEqSpec)
                 -- In GADT form, this is *exactly* what the programmer writes, even if
                 -- the context constrains only universally quantified variables
                 --      MkT :: forall a b. (a ~ b, Ord b) => a -> T a b

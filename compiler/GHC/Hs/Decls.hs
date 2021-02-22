@@ -1470,6 +1470,7 @@ data ConDecl pass
         -- ^ The outermost type variable binders, be they explicit or implicit.
         --   The 'XRec' is used to anchor API annotations, AnnForall and AnnDot.
       , con_mb_cxt  :: Maybe (LHsContext pass)   -- ^ User-written context (if any)
+      , con_mult    :: HsArrow pass
       , con_g_args  :: HsConDeclGADTDetails pass -- ^ Arguments; never infix
       , con_res_ty  :: LHsType pass              -- ^ Result type
 
@@ -1489,6 +1490,7 @@ data ConDecl pass
       , con_ex_tvs :: [LHsTyVarBndr Specificity pass] -- ^ Existentials only
       , con_mb_cxt :: Maybe (LHsContext pass)         -- ^ User-written context (if any)
       , con_args   :: HsConDeclH98Details pass        -- ^ Arguments; can be infix
+      , con_mult    :: HsArrow pass
 
       , con_doc       :: Maybe LHsDocString
           -- ^ A possible Haddock comment.

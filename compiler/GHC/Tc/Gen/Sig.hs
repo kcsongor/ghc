@@ -61,7 +61,6 @@ import GHC.Utils.Misc as Utils ( singleton )
 import GHC.Data.Maybe( orElse )
 import Data.Maybe( mapMaybe )
 import Control.Monad( unless )
-import GHC.Parser.Annotation
 
 
 {- -------------------------------------------------------------
@@ -374,8 +373,8 @@ tcPatSynSig :: Name -> LHsSigType GhcRn -> TcM TcPatSynInfo
 -- See Note [Pattern synonym signatures]
 -- See Note [Recipe for checking a signature] in GHC.Tc.Gen.HsType
 tcPatSynSig name sig_ty@(L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = hs_ty}))
-  | (hs_req, hs_ty1) <- splitLHsQualTy hs_ty
-  , (ex_hs_tvbndrs, hs_prov, hs_body_ty) <- splitLHsSigmaTyInvis hs_ty1
+  | ((req_mult, hs_req), hs_ty1) <- splitLHsQualTy hs_ty
+  , (ex_hs_tvbndrs, (prov_mult, hs_prov), hs_body_ty) <- splitLHsSigmaTyInvis hs_ty1
   = do { traceTc "tcPatSynSig 1" (ppr sig_ty)
 
        ; let skol_info = DataConSkol name
@@ -384,8 +383,8 @@ tcPatSynSig name sig_ty@(L _ (HsSig{sig_bndrs = hs_outer_bndrs, sig_body = hs_ty
                      -- See Note [solveEqualities in tcPatSynSig]
               tcOuterTKBndrs skol_info hs_outer_bndrs $
               tcExplicitTKBndrs ex_hs_tvbndrs         $
-              do { req     <- tcHsContext (HsUnrestrictedArrow NormalSyntax) hs_req
-                 ; prov    <- tcHsContext (HsUnrestrictedArrow NormalSyntax) hs_prov
+              do { req     <- tcHsContext req_mult hs_req
+                 ; prov    <- tcHsContext prov_mult hs_prov
                  ; body_ty <- tcHsOpenType hs_body_ty
                      -- A (literal) pattern can be unlifted;
                      -- e.g. pattern Zero <- 0#   (#12094)

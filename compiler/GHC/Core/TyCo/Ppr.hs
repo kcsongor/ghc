@@ -246,6 +246,7 @@ debug_ppr_ty prec ty@(FunTy { ft_af = af, ft_mult = mult, ft_arg = arg, ft_res =
                           Many -> arrow
                           w -> mulArrow (ppr w)
             InvisArg -> case mult of
+                          One -> dlollipop
                           Many -> darrow
                           _ -> pprPanic "unexpected multiplicity" (ppr ty)
 

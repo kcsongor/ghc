@@ -1617,11 +1617,11 @@ kcConDecl :: NewOrData
           -> TcM ()
 kcConDecl new_or_data tc_res_kind (ConDeclH98
   { con_name = name, con_ex_tvs = ex_tvs
-  , con_mb_cxt = ex_ctxt, con_args = args })
+  , con_mb_cxt = ex_ctxt, con_args = args, con_mult = w})
   = addErrCtxt (dataConCtxt [name]) $
     discardResult                   $
     bindExplicitTKBndrs_Tv ex_tvs $
-    do { _ <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) ex_ctxt
+    do { _ <- tcHsMbContext w ex_ctxt
        ; kcConH98Args new_or_data tc_res_kind args
          -- We don't need to check the telescope here,
          -- because that's done in tcConDecl
@@ -1631,13 +1631,13 @@ kcConDecl new_or_data
           _tc_res_kind   -- Not used in GADT case (and doesn't make sense)
           (ConDeclGADT
     { con_names = names, con_bndrs = L _ outer_bndrs, con_mb_cxt = cxt
-    , con_g_args = args, con_res_ty = res_ty })
+    , con_g_args = args, con_res_ty = res_ty, con_mult = w })
   = -- See Note [kcConDecls: kind-checking data type decls]
     addErrCtxt (dataConCtxt names) $
     discardResult                      $
     bindOuterSigTKBndrs_Tv outer_bndrs $
         -- Why "_Tv"?  See Note [Using TyVarTvs for kind-checking GADTs]
-    do { _ <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) cxt
+    do { _ <- tcHsMbContext w cxt
        ; traceTc "kcConDecl:GADT {" (ppr names $$ ppr res_ty)
        ; con_res_kind <- newOpenTypeKind
        ; _ <- tcCheckLHsType res_ty (TheKind con_res_kind)
@@ -3280,7 +3280,8 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
           (ConDeclH98 { con_name = lname@(L _ name)
                       , con_ex_tvs = explicit_tkv_nms
                       , con_mb_cxt = hs_ctxt
-                      , con_args = hs_args })
+                      , con_args = hs_args
+                      , con_mult = w})
   = addErrCtxt (dataConCtxt [lname]) $
     do { -- NB: the tyvars from the declaration header are in scope
 
@@ -3295,7 +3296,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; (tclvl, wanted, (exp_tvbndrs, (ctxt, arg_tys, field_lbls, stricts)))
            <- pushLevelAndSolveEqualitiesX "tcConDecl:H98"  $
               tcExplicitTKBndrs explicit_tkv_nms            $
-              do { ctxt <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) hs_ctxt
+              do { ctxt <- tcHsMbContext w hs_ctxt
                  ; let exp_kind = getArgExpKind new_or_data res_kind
                  ; btys <- tcConH98Args exp_kind hs_args
                  ; field_lbls <- lookupConstructorFields name
@@ -3373,7 +3374,8 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
           (ConDeclGADT { con_names = names
                        , con_bndrs = L _ outer_hs_bndrs
                        , con_mb_cxt = cxt, con_g_args = hs_args
-                       , con_res_ty = hs_res_ty })
+                       , con_res_ty = hs_res_ty
+                       , con_mult = w})
   = addErrCtxt (dataConCtxt names) $
     do { traceTc "tcConDecl 1 gadt" (ppr names)
        ; let (L _ name : _) = names
@@ -3381,7 +3383,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs _res_kind tag_map
        ; (tclvl, wanted, (outer_bndrs, (ctxt, arg_tys, res_ty, field_lbls, stricts)))
            <- pushLevelAndSolveEqualitiesX "tcConDecl:GADT" $
               tcOuterTKBndrs skol_info outer_hs_bndrs       $
-              do { ctxt <- tcHsMbContext (HsUnrestrictedArrow NormalSyntax) cxt
+              do { ctxt <- tcHsMbContext w cxt
                  ; (res_ty, res_kind) <- tcInferLHsTypeKind hs_res_ty
                          -- See Note [GADT return kinds]
 

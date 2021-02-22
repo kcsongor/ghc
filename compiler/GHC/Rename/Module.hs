@@ -2259,7 +2259,8 @@ rnConDecls = mapFvRn (wrapLocFstM rnConDecl)
 rnConDecl :: ConDecl GhcPs -> RnM (ConDecl GhcRn, FreeVars)
 rnConDecl decl@(ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
                            , con_mb_cxt = mcxt, con_args = args
-                           , con_doc = mb_doc, con_forall = forall })
+                           , con_doc = mb_doc, con_forall = forall
+                           , con_mult = w })
   = do  { _        <- addLocM checkConName name
         ; new_name <- lookupLocatedTopBndrRn name
 
@@ -2277,7 +2278,8 @@ rnConDecl decl@(ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
                             Nothing ex_tvs $ \ new_ex_tvs ->
     do  { (new_context, fvs1) <- rnMbContext ctxt mcxt
         ; (new_args,    fvs2) <- rnConDeclH98Details (unLoc new_name) ctxt args
-        ; let all_fvs  = fvs1 `plusFV` fvs2
+        ; (new_w,       fvs3) <- rnHsArrow' ctxt w
+        ; let all_fvs  = fvs1 `plusFV` fvs2 `plusFV` fvs3
         ; traceRn "rnConDecl (ConDeclH98)" (ppr name <+> vcat
              [ text "ex_tvs:" <+> ppr ex_tvs
              , text "new_ex_dqtvs':" <+> ppr new_ex_tvs ])
@@ -2286,6 +2288,7 @@ rnConDecl decl@(ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
                        , con_name = new_name, con_ex_tvs = new_ex_tvs
                        , con_mb_cxt = new_context, con_args = new_args
                        , con_doc = mb_doc
+                       , con_mult = new_w
                        , con_forall = forall }, -- Remove when #18311 is fixed
                   all_fvs) }}
 
@@ -2294,7 +2297,8 @@ rnConDecl (ConDeclGADT { con_names   = names
                        , con_mb_cxt  = mcxt
                        , con_g_args  = args
                        , con_res_ty  = res_ty
-                       , con_doc     = mb_doc })
+                       , con_doc     = mb_doc
+                       , con_mult    = w })
   = do  { mapM_ (addLocM checkConName) names
         ; new_names <- mapM lookupLocatedTopBndrRn names
 
@@ -2315,6 +2319,7 @@ rnConDecl (ConDeclGADT { con_names   = names
     do  { (new_cxt, fvs1)    <- rnMbContext ctxt mcxt
         ; (new_args, fvs2)   <- rnConDeclGADTDetails (unLoc (head new_names)) ctxt args
         ; (new_res_ty, fvs3) <- rnLHsType ctxt res_ty
+        ; (new_w, fvs4)      <- rnHsArrow' ctxt w
 
          -- Ensure that there are no nested `forall`s or contexts, per
          -- Note [GADT abstract syntax] (Wrinkle: No nested foralls or contexts)
@@ -2322,14 +2327,15 @@ rnConDecl (ConDeclGADT { con_names   = names
        ; addNoNestedForallsContextsErr ctxt
            (text "GADT constructor type signature") new_res_ty
 
-        ; let all_fvs = fvs1 `plusFV` fvs2 `plusFV` fvs3
+        ; let all_fvs = fvs1 `plusFV` fvs2 `plusFV` fvs3 `plusFV` fvs4
 
         ; traceRn "rnConDecl (ConDeclGADT)"
             (ppr names $$ ppr outer_bndrs')
         ; return (ConDeclGADT { con_g_ext = noExtField, con_names = new_names
                               , con_bndrs = L l outer_bndrs', con_mb_cxt = new_cxt
                               , con_g_args = new_args, con_res_ty = new_res_ty
-                              , con_doc = mb_doc },
+                              , con_doc = mb_doc
+                              , con_mult = new_w },
                   all_fvs) } }
 
 rnMbContext :: HsDocContext -> Maybe (LHsContext GhcPs)

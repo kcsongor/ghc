@@ -1634,9 +1634,9 @@ The SrcSpan is the span of the original HsPar
 splitLHsPatSynTy ::
      LHsSigType (GhcPass p)
   -> ( [LHsTyVarBndr Specificity (NoGhcTc (GhcPass p))] -- universals
-     , LHsContext (GhcPass p)                           -- required constraints
+     , (HsArrow (GhcPass p), LHsContext (GhcPass p))                           -- required constraints
      , [LHsTyVarBndr Specificity (GhcPass p)]           -- existentials
-     , LHsContext (GhcPass p)                           -- provided constraints
+     , (HsArrow (GhcPass p), LHsContext (GhcPass p))                           -- provided constraints
      , LHsType (GhcPass p))                             -- body type
 splitLHsPatSynTy ty = (univs, reqs, exis, provs, ty4)
   where
@@ -1670,7 +1670,7 @@ splitLHsPatSynTy ty = (univs, reqs, exis, provs, ty4)
 -- generally possible to take the returned types and reconstruct the original
 -- type (parentheses and all) from them.
 splitLHsSigmaTyInvis :: LHsType (GhcPass p)
-                     -> ([LHsTyVarBndr Specificity (GhcPass p)], LHsContext (GhcPass p), LHsType (GhcPass p))
+                     -> ([LHsTyVarBndr Specificity (GhcPass p)], (HsArrow (GhcPass p), LHsContext (GhcPass p)), LHsType (GhcPass p))
 splitLHsSigmaTyInvis ty
   | (tvs,  ty1) <- splitLHsForAllTyInvis ty
   , (ctxt, ty2) <- splitLHsQualTy ty1
@@ -1692,7 +1692,7 @@ splitLHsSigmaTyInvis ty
 -- "GHC.Hs.Decls" for why this is important.
 splitLHsGadtTy ::
      LHsSigType GhcPs
-  -> (HsOuterSigTyVarBndrs GhcPs, Maybe (LHsContext GhcPs), LHsType GhcPs)
+  -> (HsOuterSigTyVarBndrs GhcPs, Maybe (HsArrow GhcPs, LHsContext GhcPs), LHsType GhcPs)
 splitLHsGadtTy (L _ sig_ty)
   | (outer_bndrs, rho_ty) <- split_bndrs sig_ty
   , (mb_ctxt, tau_ty)     <- splitLHsQualTy_KP rho_ty
@@ -1749,18 +1749,18 @@ splitLHsForAllTyInvis_KP lty@(L _ ty) =
 -- such as @(context => <...>)@. The downside to this is that it is not
 -- generally possible to take the returned types and reconstruct the original
 -- type (parentheses and all) from them.
-splitLHsQualTy :: LHsType (GhcPass pass) -> (LHsContext (GhcPass pass), LHsType (GhcPass pass))
+splitLHsQualTy :: LHsType (GhcPass pass) -> ((HsArrow (GhcPass pass), LHsContext (GhcPass pass)), LHsType (GhcPass pass))
 splitLHsQualTy ty
   | (mb_ctxt, body) <- splitLHsQualTy_KP (ignoreParens ty)
-  = (fromMaybe noLHsContext mb_ctxt, body)
+  = (fromMaybe (HsUnrestrictedArrow NormalSyntax, noLHsContext) mb_ctxt, body)
 
 -- | Decompose a type of the form @context => body@ into its constituent parts.
 --
 -- Unlike 'splitLHsQualTy', this function does not look through
 -- parentheses, hence the suffix @_KP@ (short for \"Keep Parentheses\").
-splitLHsQualTy_KP :: LHsType (GhcPass pass) -> (Maybe (LHsContext (GhcPass pass)), LHsType (GhcPass pass))
-splitLHsQualTy_KP (L _ (HsQualTy { hst_ctxt = ctxt, hst_body = body }))
-                       = (Just ctxt, body)
+splitLHsQualTy_KP :: LHsType (GhcPass pass) -> (Maybe (HsArrow (GhcPass pass), LHsContext (GhcPass pass)), LHsType (GhcPass pass))
+splitLHsQualTy_KP (L _ (HsQualTy { hst_ctxt = ctxt, hst_body = body, hst_mult = w}))
+                       = (Just (w, ctxt), body)
 splitLHsQualTy_KP body = (Nothing, body)
 
 -- | Decompose a type class instance type (of the form
@@ -1777,12 +1777,12 @@ splitLHsQualTy_KP body = (Nothing, body)
 -- See @Note [No nested foralls or contexts in instance types]@
 -- for why this is important.
 splitLHsInstDeclTy :: LHsSigType GhcRn
-                   -> ([Name], LHsContext GhcRn, LHsType GhcRn)
+                   -> ([Name], (HsArrow GhcRn, LHsContext GhcRn), LHsType GhcRn)
 splitLHsInstDeclTy (L _ (HsSig{sig_bndrs = outer_bndrs, sig_body = inst_ty})) =
   (hsOuterTyVarNames outer_bndrs, ctxt, body_ty)
   where
     (mb_cxt, body_ty) = splitLHsQualTy_KP inst_ty
-    ctxt = fromMaybe noLHsContext mb_cxt
+    ctxt = fromMaybe (HsUnrestrictedArrow NormalSyntax, noLHsContext) mb_cxt
 
 -- | Decompose a type class instance type (of the form
 -- @forall <tvs>. context => instance_head@) into the @instance_head@.

@@ -670,7 +670,7 @@ repClsInstD (ClsInstDecl { cid_poly_ty = ty, cid_binds = binds
                ; decls2 <- repInst rOver cxt1 inst_ty1 decls1
                ; wrapGenSyms ss decls2 }
  where
-   (tvs, cxt, inst_ty) = splitLHsInstDeclTy ty
+   (tvs, (_, cxt), inst_ty) = splitLHsInstDeclTy ty
 
 repStandaloneDerivD :: LDerivDecl GhcRn -> MetaM (SrcSpan, Core (M TH.Dec))
 repStandaloneDerivD (L loc (DerivDecl { deriv_strategy = strat
@@ -682,7 +682,7 @@ repStandaloneDerivD (L loc (DerivDecl { deriv_strategy = strat
                    ; repDeriv strat' cxt' inst_ty' }
        ; return (loc, dec) }
   where
-    (tvs, cxt, inst_ty) = splitLHsInstDeclTy (dropWildCards ty)
+    (tvs, (_, cxt), inst_ty) = splitLHsInstDeclTy (dropWildCards ty)
 
 repTyFamInstD :: TyFamInstDecl GhcRn -> MetaM (Core (M TH.Dec))
 repTyFamInstD (TyFamInstDecl { tfid_eqn = eqn })
@@ -1038,7 +1038,7 @@ rep_ty_sig mk_sig loc sig_ty nm
 rep_ty_sig' :: LHsSigType GhcRn
             -> MetaM (Core (M TH.Type))
 rep_ty_sig' (L _ (HsSig{sig_bndrs = outer_bndrs, sig_body = body}))
-  | (ctxt, tau) <- splitLHsQualTy body
+  | ((_, ctxt), tau) <- splitLHsQualTy body
   = do { th_explicit_tvs <- rep_ty_sig_outer_tvs outer_bndrs
        ; th_ctxt <- repLContext ctxt
        ; th_tau  <- repLTy tau
@@ -1055,7 +1055,7 @@ rep_patsyn_ty_sig :: SrcSpan -> LHsSigType GhcRn -> Located Name
 -- see Note [Scoped type variables in quotes]
 -- and Note [Don't quantify implicit type variables in quotes]
 rep_patsyn_ty_sig loc sig_ty nm
-  | (univs, reqs, exis, provs, ty) <- splitLHsPatSynTy sig_ty
+  | (univs, (_, reqs), exis, (_, provs), ty) <- splitLHsPatSynTy sig_ty
   = do { nm1 <- lookupLOcc nm
        ; th_univs <- rep_ty_sig_tvs univs
        ; th_exis  <- rep_ty_sig_tvs exis
@@ -1298,7 +1298,7 @@ repContext ctxt = do preds <- repListM typeTyConName repLTy ctxt
 
 repHsSigType :: LHsSigType GhcRn -> MetaM (Core (M TH.Type))
 repHsSigType (L _ (HsSig { sig_bndrs = outer_bndrs, sig_body = body }))
-  | (ctxt, tau) <- splitLHsQualTy body
+  | ((_, ctxt), tau) <- splitLHsQualTy body
   = addHsOuterSigTyVarBinds outer_bndrs $ \ th_outer_bndrs ->
     do { th_ctxt <- repLContext ctxt
        ; th_tau  <- repLTy tau
@@ -1322,7 +1322,7 @@ repLTy ty = repTy (unLoc ty)
 -- handled separately in repTy.
 repForallT :: HsType GhcRn -> MetaM (Core (M TH.Type))
 repForallT ty
- | (tvs, ctxt, tau) <- splitLHsSigmaTyInvis (noLoc ty)
+ | (tvs, (_, ctxt), tau) <- splitLHsSigmaTyInvis (noLoc ty)
  = addHsTyVarBinds tvs $ \bndrs ->
    do { ctxt1  <- repLContext ctxt
       ; tau1   <- repLTy tau

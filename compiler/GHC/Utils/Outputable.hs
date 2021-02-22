@@ -34,7 +34,7 @@ module GHC.Utils.Outputable (
         parens, cparen, brackets, braces, quotes, quote,
         doubleQuotes, angleBrackets,
         semi, comma, colon, dcolon, space, equals, dot, vbar,
-        arrow, lollipop, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt,
+        arrow, lollipop, dlollipop, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt,
         lambda,
         lparen, rparen, lbrack, rbrack, lbrace, rbrace, underscore, mulArrow,
         blankLine, forAllLit, bullet,
@@ -667,6 +667,7 @@ arrow      = unicodeSyntax (char '→') (docToSDoc $ Pretty.text "->")
 lollipop   = unicodeSyntax (char '⊸') (docToSDoc $ Pretty.text "%1 ->")
 larrow     = unicodeSyntax (char '←') (docToSDoc $ Pretty.text "<-")
 darrow     = unicodeSyntax (char '⇒') (docToSDoc $ Pretty.text "=>")
+dlollipop     = unicodeSyntax (char '⇒') (docToSDoc $ Pretty.text "=>.")
 arrowt     = unicodeSyntax (char '⤚') (docToSDoc $ Pretty.text ">-")
 larrowt    = unicodeSyntax (char '⤙') (docToSDoc $ Pretty.text "-<")
 arrowtt    = unicodeSyntax (char '⤜') (docToSDoc $ Pretty.text ">>-")

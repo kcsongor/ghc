@@ -689,7 +689,7 @@ instance HasHaddock (Located (ConDecl GhcPs)) where
   addHaddock (L l_con_decl con_decl) =
     extendHdkA l_con_decl $
     case con_decl of
-      ConDeclGADT { con_g_ext, con_names, con_bndrs, con_mb_cxt, con_g_args, con_res_ty } -> do
+      ConDeclGADT { con_g_ext, con_names, con_bndrs, con_mb_cxt, con_g_args, con_res_ty, con_mult } -> do
         -- discardHasInnerDocs is ok because we don't need this info for GADTs.
         con_doc' <- discardHasInnerDocs $ getConDoc (getLoc (head con_names))
         con_g_args' <-
@@ -704,8 +704,9 @@ instance HasHaddock (Located (ConDecl GhcPs)) where
           ConDeclGADT { con_g_ext, con_names, con_bndrs, con_mb_cxt,
                         con_doc = con_doc',
                         con_g_args = con_g_args',
-                        con_res_ty = con_res_ty' }
-      ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt, con_args } ->
+                        con_res_ty = con_res_ty',
+                        con_mult = con_mult }
+      ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt, con_args, con_mult } ->
         addConTrailingDoc (srcSpanEnd l_con_decl) $
         case con_args of
           PrefixCon _ ts -> do
@@ -714,7 +715,7 @@ instance HasHaddock (Located (ConDecl GhcPs)) where
             pure $ L l_con_decl $
               ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt,
                            con_doc = con_doc',
-                           con_args = PrefixCon noTypeArgs ts' }
+                           con_args = PrefixCon noTypeArgs ts', con_mult }
           InfixCon t1 t2 -> do
             t1' <- addHaddockConDeclFieldTy t1
             con_doc' <- getConDoc (getLoc con_name)
@@ -722,14 +723,14 @@ instance HasHaddock (Located (ConDecl GhcPs)) where
             pure $ L l_con_decl $
               ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt,
                            con_doc = con_doc',
-                           con_args = InfixCon t1' t2' }
+                           con_args = InfixCon t1' t2', con_mult }
           RecCon (L l_rec flds) -> do
             con_doc' <- getConDoc (getLoc con_name)
             flds' <- traverse addHaddockConDeclField flds
             pure $ L l_con_decl $
               ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt,
                            con_doc = con_doc',
-                           con_args = RecCon (L l_rec flds') }
+                           con_args = RecCon (L l_rec flds'), con_mult }
 
 -- Keep track of documentation comments on the data constructor or any of its
 -- fields.

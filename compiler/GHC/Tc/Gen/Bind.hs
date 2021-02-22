@@ -1674,7 +1674,7 @@ decideGeneralisationPlan dflags lbinds closed sig_fn
       = [ null theta
         | TcIdSig (PartialSig { psig_hs_ty = hs_ty })
             <- mapMaybe sig_fn (collectHsBindListBinders lbinds)
-        , let (L _ theta, _) = splitLHsQualTy (hsSigWcType hs_ty) ]
+        , let ((_, L _ theta), _) = splitLHsQualTy (hsSigWcType hs_ty) ]
 
     has_partial_sigs   = not (null partial_sig_mrs)
 
